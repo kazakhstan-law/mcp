@@ -1,0 +1,140 @@
+"""search: ripgrep over the working trees of the current revision."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import yaml
+
+from kzlaw_mcp.config import ALL_SCOPES, DEFAULT_SCOPES
+from kzlaw_mcp.corpus import Corpus, InputError, check_lang, title_of
+from kzlaw_mcp.gitio import CommandError, run
+from kzlaw_mcp.locate import line_context
+
+MAX_QUERY = 200
+MAX_HITS = 20
+PER_FILE = 3
+PER_ACT = 5  # a code split into 100 parts must not take every hit
+MAX_LINE = 300
+NO_HITS = (
+    "No matches. Try other wording: legal terms instead of colloquial ones, word stems "
+    "('самокат' also matches 'самокатов'), or alternatives joined with '|'."
+)
+HINT = "Open a passage with read(act_code, anchor=...) or read(act_code, point=...)."
+
+
+def _act_dir(rel: str, lang: str) -> str:
+    parent, name = rel.rsplit("/", 1)
+    if name == f"{lang}.md":
+        return parent
+    return parent.rsplit("/", 1)[0]  # <act>/<lang>/<part>.md
+
+
+def search(
+    corpus: Corpus,
+    query: str,
+    lang: str = "rus",
+    scopes: list[str] | None = None,
+    limit: int = MAX_HITS,
+) -> dict:
+    query = (query or "").strip()
+    if not 2 <= len(query) <= MAX_QUERY:
+        raise InputError(f"query must be 2..{MAX_QUERY} characters")
+    lang = check_lang(lang)
+    wanted = list(dict.fromkeys(scopes)) if scopes else list(DEFAULT_SCOPES)
+    unknown = [s for s in wanted if s not in ALL_SCOPES]
+    if unknown:
+        raise InputError(f"unknown scope(s) {unknown}; valid: {', '.join(ALL_SCOPES)}")
+    available = corpus.scopes()
+    missing = [s for s in wanted if s not in available]
+    wanted = [s for s in wanted if s in available]
+    if not wanted:
+        raise InputError("none of the requested scopes is available on this server")
+    limit = max(1, min(int(limit), MAX_HITS))
+    root: Path = corpus.settings.corpus_root
+    args = [
+        "rg",
+        "--json",
+        "--ignore-case",
+        "--max-count",
+        str(PER_FILE),
+        "--max-columns",
+        "2000",
+        "--glob",
+        f"**/{lang}.md",
+        "--glob",
+        f"**/{lang}/*.md",
+        "-e",
+        query,
+        "--",
+        *wanted,
+    ]
+    try:
+        out = run(
+            args, root, timeout=corpus.settings.subprocess_timeout_s, max_bytes=4_000_000, ok=(0, 1)
+        )
+    except CommandError as exc:
+        raise InputError(f"search failed (is the regex valid?): {exc}") from exc
+
+    by_act: dict[tuple[str, str], list[tuple[str, int, str]]] = {}
+    for line in out.text.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # the cut-off last line of truncated output
+        if event.get("type") != "match":
+            continue
+        data = event["data"]
+        path = data["path"].get("text")
+        if not path:
+            continue
+        scope, rel = path.split("/", 1)
+        by_act.setdefault((scope, _act_dir(rel, lang)), []).append(
+            (rel, data["line_number"], data["lines"].get("text", "").strip())
+        )
+
+    order = {s: i for i, s in enumerate(wanted)}
+    ranked = sorted(by_act.items(), key=lambda kv: (order[kv[0][0]], -len(kv[1]), kv[0][1]))
+    acts, used, file_lines = [], 0, {}
+    for (scope, act_dir), hits in ranked:
+        if used >= limit:
+            break
+        meta = yaml.safe_load((root / scope / act_dir / "meta.yaml").read_text("utf-8")) or {}
+        items = []
+        for rel, lineno, text in sorted(hits)[: min(PER_ACT, limit - used)]:
+            if rel not in file_lines:
+                file_lines[rel] = (root / scope / rel).read_text("utf-8").split("\n")
+            ctx = line_context(file_lines[rel], lineno)
+            items.append(
+                {
+                    "file": rel,
+                    "line": lineno,
+                    "anchor": ctx.anchor,
+                    "point": ctx.point,
+                    "heading": ctx.heading,
+                    "text": text[:MAX_LINE],
+                }
+            )
+        used += len(items)
+        acts.append(
+            {
+                "act_code": str(meta.get("act_code", "")),
+                "scope": scope,
+                "title": title_of(meta, lang),
+                "requisite": meta.get("requisite", ""),
+                "hits": items,
+            }
+        )
+    return {
+        "query": query,
+        "lang": lang,
+        "scopes": wanted,
+        "missing_scopes": missing,
+        "sha": {s: corpus.head(s) for s in wanted},
+        "truncated": out.truncated
+        or len(acts) < len(ranked)
+        or sum(len(h) for _, h in ranked) > used,
+        "acts": acts,
+        "hint": HINT if acts else NO_HITS,
+    }
