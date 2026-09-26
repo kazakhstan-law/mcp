@@ -104,10 +104,19 @@ speaker's Telegram ─► Claude │                                    │ tail
 
 | Tool | Input | Output |
 |---|---|---|
-| `search` | query (ripgrep regex, case-insensitive), language `rus`/`kaz`, optional scopes (default `codes,government,ministerial`; `local-*` only on request), limit | per hit: scope, act dir, act title (from `meta.yaml`), nearest article heading + anchor, matched line; capped (e.g. 20 hits, grouped by act) |
-| `read` | act dir (or act code), optional article anchor, language | article text (or act head + table of contents when no anchor), act title, commit sha, **ready-made citation URL** |
-| `history` | act dir, optional article anchor, optional phrase | commits touching the act: date, amending act (number, title, `Cause-Act-Code`); with a phrase, `git log -S` over the act's files to find when it appeared/disappeared |
-| `at_date` | act dir, article anchor, date, language | the article's text at `git rev-list -1 --before=<date> main`, that sha, citation URL at that sha |
+| `search` | query (ripgrep regex, case-insensitive), language `rus`/`kaz`, optional scopes (default `codes,government,ministerial`; `local-*` only on request), limit | per hit: scope, act code, act title (from `meta.yaml`), nearest article anchor and/or point label, heading, matched line; capped (20 hits, grouped by act) |
+| `read` | act code, language, optional article anchor (`st592`) and/or point label (`168-1`) | the passage (or the act's outline when neither is given), act title, commit sha, **ready-made citation link** |
+| `history` | act code, optional phrase | commits touching the act: date, amending act (number, title, `Cause-Act-Code`); with a phrase, `git log -S` over the act's files to find when it appeared/disappeared |
+| `at_date` | act code, date, language, anchor and/or point | the passage at `git rev-list -1 --before=<date> HEAD`, that sha, citation link at that sha |
+
+Two corpus facts shape these (measured 2026-09-26): many orders, the traffic rules among
+them, carry **no article anchors** — their points are lines like `168-1. …`, and annexes
+restart the numbering, so a label can repeat; and the traffic rules file is 400 KB, past
+what GitHub renders. So a passage is located by anchor or point label at the revision in
+question, and a citation uses `#<anchor>` only when the file is under 384 KiB, otherwise
+the plain view with line numbers (`?plain=1#L1167-L1177`), which works at any size.
+Acts are addressed by their numeric code (unique, the directory's suffix), which also
+means no tool input is ever a path.
 
 Measured search latency (warm cache, 8 cores): default three scopes 0.2–1.9 s;
 all 25 scopes 0.9–3.2 s (cold). Hit counts are small for legal phrases and
