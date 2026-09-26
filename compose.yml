@@ -1,0 +1,30 @@
+services:
+  server:
+    build: .
+    image: kazakhstan-law-mcp:local
+    command: kzlaw-mcp
+    env_file: .env
+    environment:
+      KZLAW_CORPUS_ROOT: /corpus
+      KZLAW_HOST: 0.0.0.0
+      KZLAW_PORT: "8000"
+      KZLAW_LOG_PATH: /logs/calls.jsonl
+    volumes:
+      - ./data/corpus:/corpus:ro
+      - ./data/logs:/logs
+    ports:
+      - "8765:8000"
+    read_only: true
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 60s
+  refresh:
+    image: kazakhstan-law-mcp:local
+    command: kzlaw-refresh --loop 3600
+    environment:
+      KZLAW_CORPUS_ROOT: /corpus
+    volumes:
+      - ./data/corpus:/corpus
+    restart: unless-stopped
