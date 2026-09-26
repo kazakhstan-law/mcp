@@ -2395,6 +2395,13 @@ The `refresh` service clones all 25 scopes on its first pass (≈ 1.8 GB). Follo
 `deploy/Caddyfile.snippet`: lines that go **inside** the existing `cyphy.kz, http://cyphy.kz { … }` block:
 ```
     # kazakhstan-law MCP on latitude (tailnet), https://github.com/kazakhstan-law/mcp
+    # This site also answers plain HTTP on purpose (the /mtproto link must survive an
+    # SNI-filtering censor). The MCP endpoint is HTTPS-only: plain requests are redirected.
+    @kzlaw_plain {
+        protocol http
+        path /kazakhstan-law /kazakhstan-law/*
+    }
+    redir @kzlaw_plain https://{host}{uri} 308
     # handle_path strips the prefix: the server sees /mcp, /health and / (the landing page).
     redir /kazakhstan-law /kazakhstan-law/ 308
     handle_path /kazakhstan-law/* {
@@ -2416,7 +2423,10 @@ curl -s https://cyphy.kz/kazakhstan-law/ | head -5
 uv run python scripts/smoke.py https://cyphy.kz/kazakhstan-law/mcp
 ssh latitude.gg.ez 'tail -3 ~/my/kazakhstan-law-mcp/data/logs/calls.jsonl'
 ```
-Also `curl -s -o /dev/null -w "%{http_code}\n" https://cyphy.kz/mtproto` → still 200.
+Also `curl -s -o /dev/null -w "%{http_code}\n" https://cyphy.kz/mtproto` → still 200, and
+`curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" http://cyphy.kz/kazakhstan-law/mcp` →
+`308 https://cyphy.kz/kazakhstan-law/mcp` (plain HTTP never reaches the server), while
+`curl -s -o /dev/null -w "%{http_code}\n" http://cyphy.kz/mtproto` is still 200 over plain HTTP.
 Expected: `{"ok":true,"scopes":25}`, the landing text, four tools with the ПДД in the results, and log rows with `"via_proxy": true`. If `via_proxy` is `false`, docker is hiding hub's address behind the bridge. Print the peer the server sees, for example with a temporary log line, and set `KZLAW_TRUSTED_PROXIES` to it in `.env`, so the rate limit keys on real clients.
 
 - [ ] **Step 5: Run the reference questions against the public URL**
