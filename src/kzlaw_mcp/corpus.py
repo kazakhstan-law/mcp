@@ -1,0 +1,141 @@
+"""The corpus as a set of git clones: act index by code, metadata, files, citation links."""
+
+from __future__ import annotations
+
+import re
+import threading
+import time
+from dataclasses import dataclass
+from urllib.parse import quote
+
+import yaml
+
+from kzlaw_mcp.config import ALL_SCOPES, Settings
+from kzlaw_mcp.gitio import Git
+
+ACT_CODE = re.compile(r"^[0-9]{1,12}$")
+CODE_IN_PATH = re.compile(r"-([0-9]+)/meta\.yaml$")
+# GitHub stops rendering Markdown somewhere between 390 and 432 KB; without rendering no
+# anchor exists, so larger files are cited by line numbers in the plain view.
+RENDER_LIMIT = 384 * 1024
+LANGS = ("rus", "kaz")
+
+
+class InputError(ValueError):
+    """Bad tool input. The message is returned to the calling model."""
+
+
+@dataclass(frozen=True)
+class ActRef:
+    code: str
+    scope: str
+    path: str
+
+
+def check_lang(lang: str) -> str:
+    if lang not in LANGS:
+        raise InputError("lang must be 'rus' or 'kaz'")
+    return lang
+
+
+def title_of(meta: dict, lang: str) -> str:
+    title = meta.get("title") or {}
+    return title.get(lang) or title.get("rus") or ""
+
+
+def locator_label(anchor: str | None, point: str | None) -> str:
+    parts = []
+    if anchor and (m := re.match(r"^(?:an([0-9-]+)_)?st([0-9-]+)", anchor)):
+        if m.group(1):
+            parts.append(f"прил. {m.group(1)}")
+        parts.append(f"ст. {m.group(2)}")
+    if point:
+        parts.append(("ч. " if parts else "п. ") + point)
+    return ", ".join(parts)
+
+
+class Corpus:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self._index: dict[str, ActRef] = {}
+        self._heads: dict[str, str] = {}
+        self._checked = float("-inf")
+        self._lock = threading.Lock()
+
+    def scopes(self) -> list[str]:
+        root = self.settings.corpus_root
+        return [s for s in ALL_SCOPES if (root / s / ".git").exists()]
+
+    def git(self, scope: str) -> Git:
+        return Git(self.settings.corpus_root / scope, self.settings.subprocess_timeout_s)
+
+    def head(self, scope: str) -> str:
+        self._refresh()
+        return self._heads[scope]
+
+    def find(self, act_code: str) -> ActRef:
+        code = str(act_code).strip()
+        if not ACT_CODE.match(code):
+            raise InputError(f"act_code must be the act's numeric code, got {act_code!r}")
+        self._refresh()
+        try:
+            return self._index[code]
+        except KeyError:
+            raise InputError(
+                f"act {code} is not in the corpus (only acts in force are indexed); use search"
+            ) from None
+
+    def meta(self, ref: ActRef, sha: str) -> dict:
+        return yaml.safe_load(self.git(ref.scope).blob(sha, f"{ref.path}/meta.yaml")) or {}
+
+    def lang_files(self, ref: ActRef, sha: str, lang: str) -> list[str]:
+        """`<act>/<lang>.md` first, then its parts `<act>/<lang>/*.md`, as they are at `sha`."""
+        main = f"{ref.path}/{lang}.md"
+        files = self.git(ref.scope).ls_tree(sha, main, f"{ref.path}/{lang}")
+        return sorted(files, key=lambda f: (f != main, f))
+
+    def citation_url(
+        self,
+        ref: ActRef,
+        sha: str,
+        file: str,
+        *,
+        anchor: str | None,
+        lines: tuple[int, int] | None,
+        size: int,
+    ) -> str:
+        base = f"https://github.com/{self.settings.github_org}/{ref.scope}/blob/{sha}/{quote(file)}"
+        if anchor and size <= RENDER_LIMIT:
+            return f"{base}#{anchor}"
+        if lines:
+            return f"{base}?plain=1#L{lines[0]}-L{lines[1]}"
+        return base
+
+    def commit_url(self, scope: str, sha: str) -> str:
+        return f"https://github.com/{self.settings.github_org}/{scope}/commit/{sha}"
+
+    def _refresh(self) -> None:
+        with self._lock:
+            if time.monotonic() - self._checked < self.settings.head_ttl_s:
+                return
+            for scope in self.scopes():
+                head = self.git(scope).head()
+                if self._heads.get(scope) != head:
+                    self._reindex(scope, head)
+                    self._heads[scope] = head
+            self._checked = time.monotonic()
+
+    def _reindex(self, scope: str, head: str) -> None:
+        g = self.git(scope)
+        index = {code: ref for code, ref in self._index.items() if ref.scope != scope}
+        for path in g.ls_tree(head):
+            if not path.endswith("meta.yaml"):
+                continue
+            act_dir = path.rsplit("/", 1)[0]
+            if m := CODE_IN_PATH.search(path):
+                code = m.group(1)
+            else:  # the Constitution: 00-constitution/meta.yaml
+                code = str((yaml.safe_load(g.blob(head, path)) or {}).get("act_code", ""))
+            if code:
+                index[code] = ActRef(code, scope, act_dir)
+        self._index = index
