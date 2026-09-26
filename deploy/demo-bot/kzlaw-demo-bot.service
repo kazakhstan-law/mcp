@@ -1,0 +1,14 @@
+[Unit]
+Description=kazakhstan-law demo bot (Claude Code Channels, Telegram)
+After=network-online.target
+
+[Service]
+Type=forking
+WorkingDirectory=%h/demo-bot
+ExecStart=/usr/bin/tmux new-session -d -s demo-bot "%h/.local/bin/claude --channels plugin:telegram@claude-plugins-official"
+ExecStop=/usr/bin/tmux kill-session -t demo-bot
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

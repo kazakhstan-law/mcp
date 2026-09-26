@@ -1,0 +1,16 @@
+{
+  "model": "claude-opus-5-5",
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "mcp__kazakhstan-law__search",
+      "mcp__kazakhstan-law__read",
+      "mcp__kazakhstan-law__at_date",
+      "mcp__kazakhstan-law__history"
+    ],
+    "deny": [
+      "Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep",
+      "WebFetch", "WebSearch", "Task", "Agent"
+    ]
+  }
+}

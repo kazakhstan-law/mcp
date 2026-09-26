@@ -1,0 +1,13 @@
+    # kazakhstan-law MCP on latitude (tailnet), https://github.com/kazakhstan-law/mcp
+    # This site also answers plain HTTP on purpose (the /mtproto link must survive an
+    # SNI-filtering censor). The MCP endpoint is HTTPS-only: plain requests are redirected.
+    @kzlaw_plain {
+        protocol http
+        path /kazakhstan-law /kazakhstan-law/*
+    }
+    redir @kzlaw_plain https://{host}{uri} 308
+    # handle_path strips the prefix: the server sees /mcp, /health and / (the landing page).
+    redir /kazakhstan-law /kazakhstan-law/ 308
+    handle_path /kazakhstan-law/* {
+        reverse_proxy 100.64.0.8:8765
+    }
