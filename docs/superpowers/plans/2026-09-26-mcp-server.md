@@ -139,7 +139,7 @@ data/
 `.env.example`:
 ```
 # Copy to .env on the server. Never commit .env.
-KZLAW_PUBLIC_URL=https://law.cyphy.kz/mcp
+KZLAW_PUBLIC_URL=https://cyphy.kz/kazakhstan-law/mcp
 # Random, server-local: salts the client-IP hash in the call log.
 KZLAW_IP_SALT=
 ```
@@ -1942,12 +1942,12 @@ def main() -> None:
     build_server(Settings.from_env()).run(transport="streamable-http")
 ```
 
-Note: FastMCP turns on DNS-rebinding protection only when `host` is a localhost name. In production `KZLAW_HOST=0.0.0.0`, so a request with `Host: law.cyphy.kz` is accepted. If it were bound to `127.0.0.1`, every proxied request would get 421.
+Note: FastMCP turns on DNS-rebinding protection only when `host` is a localhost name. In production `KZLAW_HOST=0.0.0.0`, so a request with `Host: cyphy.kz` is accepted. If it were bound to `127.0.0.1`, every proxied request would get 421.
 
 - [ ] **Step 4: Write `scripts/smoke.py`**
 
 ```python
-"""Smoke-test an MCP endpoint: `uv run python scripts/smoke.py https://law.cyphy.kz/mcp`."""
+"""Smoke-test an MCP endpoint: `uv run python scripts/smoke.py https://cyphy.kz/kazakhstan-law/mcp`."""
 
 import asyncio
 import sys
@@ -2302,12 +2302,12 @@ repositories, one commit per version. Your chatbot can search the law, read an a
 see the text in force on a past date, and find when a rule appeared. Every answer links to
 the exact version it quotes.
 
-**Endpoint:** `https://law.cyphy.kz/mcp` (Streamable HTTP, no authentication).
+**Endpoint:** `https://cyphy.kz/kazakhstan-law/mcp` (Streamable HTTP, no authentication).
 
 ## Подключить
 
 **Claude** (любой тариф, включая бесплатный): claude.ai → Настройки → Коннекторы →
-Добавить свой коннектор → `https://law.cyphy.kz/mcp`. Добавлять нужно на сайте; потом
+Добавить свой коннектор → `https://cyphy.kz/kazakhstan-law/mcp`. Добавлять нужно на сайте; потом
 коннектор работает и в приложении на телефоне. На бесплатном тарифе можно подключить один
 свой коннектор.
 
@@ -2365,11 +2365,19 @@ git add -A && git commit -m "test: reference questions through claude -p; README
 
 **Interfaces:**
 - Consumes: the image and compose file from Task 9
-- Produces: `https://law.cyphy.kz/mcp` serving all 25 scopes
+- Produces: `https://cyphy.kz/kazakhstan-law/mcp` serving all 25 scopes; landing page at `https://cyphy.kz/kazakhstan-law/`
 
-- [ ] **Step 1: Ask the user to confirm the hostname and create the DNS record**
+- [ ] **Step 1: Confirm the path is still free**
 
-The default is `law.cyphy.kz`. DNS for `cyphy.kz` is at ps.kz (`ns1.ps.kz`), and there is no wildcard record. The user adds an `A` record `law.cyphy.kz → 78.40.108.102` (hub) there themselves. Wait until `dig +short law.cyphy.kz` returns `78.40.108.102`. If they pick another name, replace `law.cyphy.kz` everywhere in this task, in `README.md` and in `.env.example`.
+The endpoint is a path on the existing `cyphy.kz` site (the user's decision, 2026-09-26), so
+no DNS record is needed. On 2026-09-26 that site served only `/mtproto` and returned 404 for
+everything else, including `/.well-known/oauth-*`. That 404 matters: MCP clients probe those
+paths to decide whether a server needs OAuth, and a 404 means "no auth".
+```bash
+for p in /kazakhstan-law/ /kazakhstan-law/mcp /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/kazakhstan-law/mcp; do
+  printf "%s " $p; curl -s -o /dev/null -w "%{http_code}\n" https://cyphy.kz$p; done
+```
+Expected: 404 for all four. Anything else: stop and report.
 
 - [ ] **Step 2: Deploy on latitude** (user `me`, docker available, linger on)
 
@@ -2377,55 +2385,55 @@ The default is `law.cyphy.kz`. DNS for `cyphy.kz` is at ps.kz (`ns1.ps.kz`), and
 ssh latitude.gg.ez '
   cd ~/my && git clone https://github.com/kazakhstan-law/mcp.git kazakhstan-law-mcp && cd kazakhstan-law-mcp
   mkdir -p data/corpus data/logs
-  printf "KZLAW_PUBLIC_URL=https://law.cyphy.kz/mcp\nKZLAW_IP_SALT=%s\n" "$(openssl rand -hex 16)" > .env
+  printf "KZLAW_PUBLIC_URL=https://cyphy.kz/kazakhstan-law/mcp\nKZLAW_IP_SALT=%s\n" "$(openssl rand -hex 16)" > .env
   docker compose build && docker compose up -d'
 ```
 The `refresh` service clones all 25 scopes on its first pass (≈ 1.8 GB). Follow it with `ssh latitude.gg.ez 'cd ~/my/kazakhstan-law-mcp && docker compose logs -f refresh'` until all 25 print `cloned`. Then check from g15 over the tailnet: `curl -s http://100.64.0.8:8765/health` → `{"ok":true,"scopes":25}`.
 
 - [ ] **Step 3: Add the hub route**
 
-`deploy/Caddyfile.snippet`:
+`deploy/Caddyfile.snippet`: lines that go **inside** the existing `cyphy.kz, http://cyphy.kz { … }` block:
 ```
-law.cyphy.kz {
     # kazakhstan-law MCP on latitude (tailnet), https://github.com/kazakhstan-law/mcp
-    reverse_proxy 100.64.0.8:8765
-    log {
-        output file /var/log/caddy/law.log
+    # handle_path strips the prefix: the server sees /mcp, /health and / (the landing page).
+    redir /kazakhstan-law /kazakhstan-law/ 308
+    handle_path /kazakhstan-law/* {
+        reverse_proxy 100.64.0.8:8765
     }
-}
 ```
-On hub, in `~/vps/vps`: append the snippet to `caddy/Caddyfile` after the `speed.cyphy.kz` block. Validate **before** deploying: `deploy-caddy.sh` copies first and reloads second, so a bad file stays behind. Then deploy, commit and push:
+On hub, in `~/vps/vps`, read the whole `cyphy.kz` block first: it serves `/mtproto` from `caddy/site/`. The new lines must not change what `/mtproto` gets, and a catch-all there must not swallow `/kazakhstan-law/*`. Insert the snippet into that block. Validate **before** deploying: `deploy-caddy.sh` copies first and reloads second, so a bad file stays behind. Then deploy, commit and push:
 ```bash
 ssh -o IdentitiesOnly=yes hub 'cd ~/vps/vps && caddy validate --config caddy/Caddyfile && sudo ./deploy-caddy.sh \
-  && git add caddy/Caddyfile && git commit -m "caddy: law.cyphy.kz -> kazakhstan-law MCP on latitude" && git push'
+  && git add caddy/Caddyfile && git commit -m "caddy: cyphy.kz/kazakhstan-law -> kazakhstan-law MCP on latitude" && git push'
 ```
 The Caddyfile starts with a warning to validate first; the order in this command already does that. If `sudo` asks for a password, stop and hand this step to the user.
 
 - [ ] **Step 4: Verify the public endpoint**
 
 ```bash
-curl -s https://law.cyphy.kz/health
-curl -s https://law.cyphy.kz/ | head -5
-uv run python scripts/smoke.py https://law.cyphy.kz/mcp
+curl -s https://cyphy.kz/kazakhstan-law/health
+curl -s https://cyphy.kz/kazakhstan-law/ | head -5
+uv run python scripts/smoke.py https://cyphy.kz/kazakhstan-law/mcp
 ssh latitude.gg.ez 'tail -3 ~/my/kazakhstan-law-mcp/data/logs/calls.jsonl'
 ```
+Also `curl -s -o /dev/null -w "%{http_code}\n" https://cyphy.kz/mtproto` → still 200.
 Expected: `{"ok":true,"scopes":25}`, the landing text, four tools with the ПДД in the results, and log rows with `"via_proxy": true`. If `via_proxy` is `false`, docker is hiding hub's address behind the bridge. Print the peer the server sees, for example with a temporary log line, and set `KZLAW_TRUSTED_PROXIES` to it in `.env`, so the rate limit keys on real clients.
 
 - [ ] **Step 5: Run the reference questions against the public URL**
 
 ```bash
-KZLAW_MCP_URL=https://law.cyphy.kz/mcp uv run pytest -m reference -v -s
+KZLAW_MCP_URL=https://cyphy.kz/kazakhstan-law/mcp uv run pytest -m reference -v -s
 ```
 Expected: 3 passed.
 
 - [ ] **Step 6: The user connects it in claude.ai and on their phone**
 
-Ask the user to add `https://law.cyphy.kz/mcp` as a custom connector on claude.ai and ask the scooter question from the phone app. This is the path the audience takes, and only they can do it.
+Ask the user to add `https://cyphy.kz/kazakhstan-law/mcp` as a custom connector on claude.ai and ask the scooter question from the phone app. This is the path the audience takes, and only they can do it.
 
 - [ ] **Step 7: Commit, push**
 
 ```bash
-git add -A && git commit -m "deploy: hub route snippet; endpoint live at law.cyphy.kz" && git push
+git add -A && git commit -m "deploy: hub route snippet; endpoint live at cyphy.kz/kazakhstan-law/mcp" && git push
 ```
 
 ---
@@ -2504,7 +2512,7 @@ ssh latitude.gg.ez '
   curl -fsSL https://claude.ai/install.sh | bash
   cd ~/my/kazakhstan-law-mcp && git pull
   mkdir -p ~/demo-bot/.claude && cp deploy/demo-bot/CLAUDE.md ~/demo-bot/ && cp deploy/demo-bot/settings.json ~/demo-bot/.claude/
-  cd ~/demo-bot && ~/.local/bin/claude mcp add --transport http kazakhstan-law https://law.cyphy.kz/mcp
+  cd ~/demo-bot && ~/.local/bin/claude mcp add --transport http kazakhstan-law https://cyphy.kz/kazakhstan-law/mcp
   ~/.local/bin/claude --version; ~/.local/bin/claude --help | grep -i channels'
 ```
 Expected: a version at or above 2.1.80, and `--channels` in the help. If it is missing, stop and report: Channels is not available in this build.

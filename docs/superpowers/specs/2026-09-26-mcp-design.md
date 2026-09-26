@@ -50,7 +50,7 @@ The tools support all three; the calling model picks.
 
 ```
 audience's Claude / ChatGPT ─┐
-                             ├─► https://<public host>/mcp ─► hub (TLS, reverse proxy)
+                             ├─► https://cyphy.kz/kazakhstan-law/mcp ─► hub (Caddy, TLS)
 speaker's Telegram ─► Claude │                                    │ tailnet
    Code Channels session ────┘                                    ▼
    (on latitude)                                  latitude: MCP server (Streamable HTTP)
@@ -66,8 +66,9 @@ speaker's Telegram ─► Claude │                                    │ tail
   free) under docker compose, like `embedthat`. latitude is tailnet-only, and
   Claude connects to custom connectors from Anthropic's cloud, so the endpoint
   must be publicly reachable: `hub` (the public VPS) terminates TLS for a
-  public hostname and proxies to latitude over the tailnet. The hostname and
-  the proxy software on hub are settled in the plan.
+  public hostname and proxies to latitude over the tailnet. The endpoint is a path on
+  the existing site: `https://cyphy.kz/kazakhstan-law/mcp`, landing page at
+  `https://cyphy.kz/kazakhstan-law/` (no new DNS record).
 
 ### 3.1 Data on the server
 
@@ -238,7 +239,7 @@ Mode, Plus and up, web). Two or three example questions.
 
 ## 10. Open decisions
 
-- Public hostname and the reverse proxy on hub (plan).
+- ~~Public hostname~~ settled: `https://cyphy.kz/kazakhstan-law/mcp`.
 - The final demo questions (the speaker chooses; §9 is the reference set).
 
 ## 11. Out of scope, and what was dropped
