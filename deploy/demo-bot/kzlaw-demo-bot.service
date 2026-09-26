@@ -5,7 +5,7 @@ After=network-online.target
 [Service]
 Type=forking
 # Outside $HOME on purpose: Claude Code loads every CLAUDE.md from the working directory up,
-# and the owner's ~/CLAUDE.md is instructions for his own work, not for this bot.
+# and the owner's ~/CLAUDE.md holds instructions for the owner's own work, not for this bot.
 WorkingDirectory=/srv/kzlaw-demo-bot
 # A profile of its own: its login, its plugin and no user-level CLAUDE.md, hooks or MCP servers.
 Environment=CLAUDE_CONFIG_DIR=%h/.claude-kzlaw-demo-bot

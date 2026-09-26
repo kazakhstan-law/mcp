@@ -58,3 +58,36 @@ def test_default_rate_fits_a_conversation():
 
     # one question takes 5-20 tool calls (measured on the reference questions)
     assert Settings(corpus_root=None).rate_calls >= 300
+
+
+@pytest.mark.anyio
+async def test_log_rows_stay_small(settings):
+    from dataclasses import replace
+
+    gate = Gate(replace(settings, rate_calls=1))
+    big = {"query": "я" * 5000, "scopes": ["x" * 5000] * 1000}
+    await gate.call("search", big, req("9.9.9.9"), lambda: {"ok": 1})
+    with pytest.raises(InputError):
+        await gate.call("search", big, req("9.9.9.9"), lambda: {"ok": 1})
+    rows = [json.loads(line) for line in settings.log_path.read_text().splitlines()]
+    assert len(json.dumps(rows[0], ensure_ascii=False)) < 2000
+    assert "args" not in rows[1]  # a rate-limited caller cannot write its payload
+
+
+@pytest.mark.anyio
+async def test_unexpected_errors_are_logged_and_hidden(settings):
+    def boom():
+        raise FileNotFoundError("/corpus/codes/secret/path")
+
+    with pytest.raises(InputError, match="internal error") as exc:
+        await Gate(settings).call("read", {}, None, boom)
+    assert "/corpus" not in str(exc.value)
+    [row] = [json.loads(line) for line in settings.log_path.read_text().splitlines()]
+    assert row["ok"] is False and row["error"] == "FileNotFoundError"
+
+
+def test_logging_without_a_salt_is_refused(settings):
+    from dataclasses import replace
+
+    with pytest.raises(ValueError, match="KZLAW_IP_SALT"):
+        Gate(replace(settings, ip_salt=""))

@@ -74,6 +74,9 @@ def client_ip(request, trusted: frozenset[str]) -> tuple[str, bool]:
 
 class Gate:
     def __init__(self, settings: Settings, clock: Callable[[], float] = time.monotonic):
+        if settings.log_path is not None and not settings.ip_salt:
+            # sha256 of a bare IPv4 address is reversed by trying all 2**32 of them
+            raise ValueError("set KZLAW_IP_SALT to a random value when the call log is on")
         self.settings = settings
         self.limiter = RateLimiter(settings.rate_calls, settings.rate_window_s, clock)
         self.log = CallLog(settings.log_path, settings.ip_salt)
@@ -83,11 +86,12 @@ class Gate:
         if self._capacity is None:
             self._capacity = anyio.CapacityLimiter(self.settings.max_parallel)
         ip, via_proxy = client_ip(request, self.settings.trusted_proxies)
-        base = {"ip": ip, "via_proxy": via_proxy, "tool": tool, "args": args}
+        base = {"ip": ip, "via_proxy": via_proxy, "tool": tool}
         wait = self.limiter.hit(ip)
-        if wait is not None:
+        if wait is not None:  # logged without args: a limited caller cannot fill the disk
             self.log.record(**base, ok=False, error="rate_limited", ms=0)
             raise InputError(f"rate limit reached; try again in {int(wait) + 1} s")
+        base["args"] = _clip_args(args)
         started = time.monotonic()
         try:
             result = await anyio.to_thread.run_sync(fn, limiter=self._capacity)
@@ -97,6 +101,9 @@ class Gate:
         except CommandError as exc:
             self.log.record(**base, ok=False, error=str(exc), ms=_ms(started))
             raise InputError(f"temporary failure, try again: {exc}") from exc
+        except Exception as exc:  # logged for review; the client gets no paths or traces
+            self.log.record(**base, ok=False, error=type(exc).__name__, ms=_ms(started))
+            raise InputError("internal error; try again or rephrase") from exc
         size = len(json.dumps(result, ensure_ascii=False))
         self.log.record(**base, ok=True, size=size, ms=_ms(started))
         return result
@@ -104,3 +111,16 @@ class Gate:
 
 def _ms(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
+
+
+def _clip_args(args: dict, limit: int = 300) -> dict:
+    """Arguments as logged: long strings cut, lists capped. Inputs are checked only later."""
+
+    def clip(v, n=limit):
+        if isinstance(v, str):
+            return v[:n]
+        if isinstance(v, list):  # scopes: at most 25 names of under 40 characters
+            return [clip(x, 40) for x in v[:30]]
+        return v
+
+    return {k: clip(v) for k, v in args.items()}

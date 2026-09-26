@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import CONST_CODE, KOAP, KOAP_CODE, PDD_CODE
+from conftest import CONST_CODE, KOAP, KOAP_CODE, PDD_CODE, init
 from kzlaw_mcp.corpus import Corpus, InputError, locator_label
 
 
@@ -59,3 +59,16 @@ def test_labels():
     assert locator_label("st592", "3-1") == "ст. 592, ч. 3-1"
     assert locator_label(None, "168-1") == "п. 168-1"
     assert locator_label("an3_st1", None) == "прил. 3, ст. 1"
+
+
+def test_a_half_cloned_scope_is_skipped(tmp_path, settings):
+    from dataclasses import replace
+
+    from kzlaw_mcp.passages import read
+
+    for scope in ("codes", "ministerial"):
+        (tmp_path / scope).symlink_to(settings.corpus_root / scope)
+    init(tmp_path / "government")  # `git clone` in progress: .git exists, HEAD is unborn
+    c = Corpus(replace(settings, corpus_root=tmp_path))
+    assert c.scopes() == ["codes", "ministerial"]
+    assert read(c, KOAP_CODE, anchor="st592")["passages"]

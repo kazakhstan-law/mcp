@@ -81,3 +81,9 @@ def test_overview_without_locator(settings):
     res = read(Corpus(settings), KOAP_CODE)
     assert res["overview"].startswith("# Об административных") and res["parts"]
     assert "passages" not in res
+
+
+def test_missing_language_is_not_called_not_in_force(settings):
+    # the traffic rules have Russian text only; on 2023-07-15 the act was in force
+    with pytest.raises(InputError, match="no 'kaz' text"):
+        at_date(Corpus(settings), PDD_CODE, "2023-07-15", lang="kaz", point="1")

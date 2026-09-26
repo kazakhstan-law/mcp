@@ -139,7 +139,7 @@ def at_date(
     sha = g.rev_before(date)
     if sha is None:
         raise InputError(f"the corpus has no history before {date}")
-    if not corpus.lang_files(ref, sha, lang):
+    if not g.ls_tree(sha, f"{ref.path}/meta.yaml"):
         raise InputError(f"act {ref.code} was not in force on {date} (it enters the corpus later)")
     res = _passages(corpus, ref, sha, lang, anchor, point, f"on {date}")
     return res | {"as_of": date, "commit_date": g.commit_date(sha)}

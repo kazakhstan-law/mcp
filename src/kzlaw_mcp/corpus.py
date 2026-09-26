@@ -11,7 +11,7 @@ from urllib.parse import quote
 import yaml
 
 from kzlaw_mcp.config import ALL_SCOPES, Settings
-from kzlaw_mcp.gitio import Git
+from kzlaw_mcp.gitio import CommandError, Git
 
 ACT_CODE = re.compile(r"^[0-9]{1,12}$")
 CODE_IN_PATH = re.compile(r"-([0-9]+)/meta\.yaml$")
@@ -63,15 +63,19 @@ class Corpus:
         self._lock = threading.Lock()
 
     def scopes(self) -> list[str]:
-        root = self.settings.corpus_root
-        return [s for s in ALL_SCOPES if (root / s / ".git").exists()]
+        """Scopes whose clone has a commit. A clone still in progress has `.git` but no HEAD."""
+        self._refresh()
+        return [s for s in ALL_SCOPES if s in self._heads]
 
     def git(self, scope: str) -> Git:
         return Git(self.settings.corpus_root / scope, self.settings.subprocess_timeout_s)
 
     def head(self, scope: str) -> str:
         self._refresh()
-        return self._heads[scope]
+        try:
+            return self._heads[scope]
+        except KeyError:
+            raise InputError(f"scope {scope} is not available right now") from None
 
     def find(self, act_code: str) -> ActRef:
         code = str(act_code).strip()
@@ -118,11 +122,18 @@ class Corpus:
         with self._lock:
             if time.monotonic() - self._checked < self.settings.head_ttl_s:
                 return
-            for scope in self.scopes():
-                head = self.git(scope).head()
-                if self._heads.get(scope) != head:
-                    self._reindex(scope, head)
-                    self._heads[scope] = head
+            root = self.settings.corpus_root
+            for scope in ALL_SCOPES:
+                try:
+                    if not (root / scope / ".git").exists():
+                        raise CommandError(f"{scope} is not cloned")
+                    head = self.git(scope).head()
+                    if self._heads.get(scope) != head:
+                        self._reindex(scope, head)
+                        self._heads[scope] = head
+                except CommandError:  # missing, or a clone still in progress: skip the scope
+                    self._heads.pop(scope, None)
+                    self._index = {c: r for c, r in self._index.items() if r.scope != scope}
             self._checked = time.monotonic()
 
     def _reindex(self, scope: str, head: str) -> None:
