@@ -51,3 +51,10 @@ async def test_gate_turns_command_errors_into_input_errors(settings):
 
     with pytest.raises(InputError, match="temporary failure"):
         await Gate(settings).call("search", {}, None, boom)
+
+
+def test_default_rate_fits_a_conversation():
+    from kzlaw_mcp.config import Settings
+
+    # one question takes 5-20 tool calls (measured on the reference questions)
+    assert Settings(corpus_root=None).rate_calls >= 300

@@ -24,12 +24,17 @@ only texts these tools return. The corpus is an unofficial copy of ЕСПИ (law
 git, with every act's full history.
 
 1. Every claim about the law carries its citation: paste the `citation` link that read or \
-at_date returned, as is. Never build or edit a link yourself. No citation, no claim.
+at_date returned, as is. Never build or edit a link yourself. No citation, no claim. \
+Each passage has its own link: never reuse one article's link for another. To merely \
+name an act you did not open, use a search hit's `url`, verbatim.
 2. Quote only passages you opened with read or at_date; a search hit alone is not enough.
 3. Search with legal wording: "ГАИ" -> "полиция", "органы внутренних дел"; "самокат" -> \
 "электрическ самокат", "средств индивидуальной мобильности". Use stems and alternation \
 ("самокат|мобильност"). Retry other wording before concluding; if nothing is found, say so \
-and name what you searched.
+and name what you searched. Keep the default scopes: do not narrow search to codes. \
+Forms, rules and procedures are ministerial orders; a form number such as 270 is \
+searched as "форм[аеуы] 270". A question about a form is answered from the order that \
+approves it ("Об утверждении формы …"): read that order and run history on it.
 4. Pick the mode: the law now -> read; the law on a past date ("оштрафовали в 2022") -> \
 at_date on that date, compared with read; "since when" -> history with a short exact phrase \
 from the current text (case-sensitive); the oldest commit is when it appeared.
@@ -61,7 +66,8 @@ SEARCH_DESC = (
     "Full-text search (regex, case-insensitive) over the acts of Kazakhstan in force. Returns "
     "acts with matching lines; each line carries the article anchor (e.g. st592) and/or point "
     "label (e.g. 168-1) to pass to read. Scopes: codes (constitution, codes, laws), government, "
-    "ministerial by default; local-<region> only for regional questions."
+    "ministerial by default (keep them: forms and rules are ministerial orders); "
+    "local-<region> only for regional questions."
 )
 READ_DESC = (
     "Current text of an act: an article by anchor (st592), a point by label (168-1), or a part "

@@ -164,7 +164,7 @@ description.
 
 ## 6. Limits and logging
 
-- Per client IP: rate limit on tool calls (e.g. 60 per 10 minutes), plus a
+- Per client IP: rate limit on tool calls (300 per 10 minutes: one question takes 5–20 tool calls, measured on the reference questions), plus a
   global concurrency cap on subprocesses so one heavy user cannot starve the
   rest. Behind the proxy the client IP comes from the proxy header, trusted
   only from hub.

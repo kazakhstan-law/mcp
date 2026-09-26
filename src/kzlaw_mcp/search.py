@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from kzlaw_mcp.config import ALL_SCOPES, DEFAULT_SCOPES
-from kzlaw_mcp.corpus import Corpus, InputError, check_lang, title_of
+from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, title_of
 from kzlaw_mcp.gitio import CommandError, run
 from kzlaw_mcp.locate import line_context
 
@@ -94,8 +94,22 @@ def search(
             (rel, data["line_number"], data["lines"].get("text", "").strip())
         )
 
+    heads = {s: corpus.head(s) for s in wanted}
     order = {s: i for i, s in enumerate(wanted)}
-    ranked = sorted(by_act.items(), key=lambda kv: (order[kv[0][0]], -len(kv[1]), kv[0][1]))
+
+    def title_hit(act_dir: str, hits: list[tuple[str, int, str]]) -> bool:
+        return any(rel == f"{act_dir}/{lang}.md" and line == 1 for rel, line, _ in hits)
+
+    # Acts whose title matches come first, in any scope. The rest take turns by scope, so a
+    # scope with many weak matches cannot push another scope's acts out of the limit; inside a
+    # scope, more matching lines rank higher.
+    by_rank = sorted(by_act.items(), key=lambda kv: (order[kv[0][0]], -len(kv[1]), kv[0][1]))
+    ranked = [kv for kv in by_rank if title_hit(kv[0][1], kv[1])]
+    queues = {s: [kv for kv in by_rank if kv[0][0] == s and kv not in ranked] for s in wanted}
+    while any(queues.values()):
+        for s in wanted:
+            if queues[s]:
+                ranked.append(queues[s].pop(0))
     acts, used, file_lines = [], 0, {}
     for (scope, act_dir), hits in ranked:
         if used >= limit:
@@ -106,6 +120,14 @@ def search(
             if rel not in file_lines:
                 file_lines[rel] = (root / scope / rel).read_text("utf-8").split("\n")
             ctx = line_context(file_lines[rel], lineno)
+            url = corpus.citation_url(
+                ActRef(str(meta.get("act_code", "")), scope, act_dir),
+                heads[scope],
+                rel,
+                anchor=ctx.anchor,
+                lines=(lineno, lineno),
+                size=(root / scope / rel).stat().st_size,
+            )
             items.append(
                 {
                     "file": rel,
@@ -114,6 +136,7 @@ def search(
                     "point": ctx.point,
                     "heading": ctx.heading,
                     "text": text[:MAX_LINE],
+                    "url": url,
                 }
             )
         used += len(items)
@@ -131,7 +154,7 @@ def search(
         "lang": lang,
         "scopes": wanted,
         "missing_scopes": missing,
-        "sha": {s: corpus.head(s) for s in wanted},
+        "sha": heads,
         "truncated": out.truncated
         or len(acts) < len(ranked)
         or sum(len(h) for _, h in ranked) > used,

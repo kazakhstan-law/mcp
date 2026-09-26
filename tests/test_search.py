@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import KOAP_CODE, PDD_CODE
+from conftest import CONST_CODE, KOAP_CODE, PDD_CODE, commit, init, meta
 from kzlaw_mcp.corpus import Corpus, InputError
 from kzlaw_mcp.search import search
 
@@ -68,3 +68,57 @@ def test_one_act_cannot_take_every_hit(settings, monkeypatch):
     monkeypatch.setattr(mod, "PER_ACT", 1)
     res = search(Corpus(settings), "километров|самокат")
     assert [len(a["hits"]) for a in res["acts"]] == [1, 1] and res["truncated"] is True
+
+
+def test_hits_carry_a_ready_link(settings):
+    c = Corpus(settings)
+    [act] = search(c, "превышение установленной скорости")["acts"]
+    hit = act["hits"][0]
+    sha = c.head("codes")
+    assert hit["url"] == (f"https://github.com/kazakhstan-law/codes/blob/{sha}/{hit['file']}#st592")
+    [pdd] = search(c, "восемнадцати лет")["acts"]
+    line = pdd["hits"][0]["line"]
+    assert pdd["hits"][0]["url"].endswith(f"rus.md?plain=1#L{line}-L{line}")
+
+
+def test_title_match_ranks_first(tmp_path, settings):
+    from dataclasses import replace
+
+    repo = init(tmp_path / "ministerial")
+    rules = "07-ministerial/x/2023/0630-rules-111"
+    citer = "07-ministerial/x/2024/0101-citer-222"
+    mention = "согласно Правилам дорожного движения"
+    commit(
+        repo,
+        "2024-01-01",
+        {
+            f"{rules}/meta.yaml": meta("111", "Об утверждении Правил дорожного движения", "Приказ"),
+            f"{rules}/rus.md": "# Об утверждении Правил дорожного движения\n\n1. Текст.\n",
+            f"{citer}/meta.yaml": meta("222", "О внесении изменений", "Приказ"),
+            f"{citer}/rus.md": "\n\n".join(["# О внесении изменений"] + [mention] * 3) + "\n",
+        },
+        "init",
+    )
+    gov = init(tmp_path / "government")
+    other = "06-government/x/2024/0101-other-333"
+    commit(
+        gov,
+        "2024-01-01",
+        {
+            f"{other}/meta.yaml": meta("333", "О мерах", "Постановление"),
+            f"{other}/rus.md": "\n\n".join(["# О мерах"] + [mention] * 3) + "\n",
+        },
+        "init",
+    )
+    c = Corpus(replace(settings, corpus_root=tmp_path))
+    res = search(c, "правил\\w* дорожного движения", scopes=["ministerial"])
+    assert [a["act_code"] for a in res["acts"]] == ["111", "222"]
+    # a title match outranks the scope order too
+    res = search(c, "правил\\w* дорожного движения", scopes=["government", "ministerial"])
+    assert [a["act_code"] for a in res["acts"]] == ["111", "333", "222"]
+
+
+def test_scopes_take_turns(settings):
+    # codes has two matching acts, ministerial one: ministerial must not wait for all of codes
+    res = search(Corpus(settings), "Статья|самокат")
+    assert [a["act_code"] for a in res["acts"]] == [KOAP_CODE, PDD_CODE, CONST_CODE]
