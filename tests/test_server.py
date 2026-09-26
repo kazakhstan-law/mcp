@@ -32,17 +32,19 @@ def server_url(settings):
 
 @pytest.mark.anyio
 async def test_tools_over_streamable_http(server_url):
-    async with streamable_http_client(f"{server_url}/mcp") as (read, write, _):
-        async with ClientSession(read, write) as session:
-            init = await session.initialize()
-            assert "citation" in init.instructions
-            names = {t.name for t in (await session.list_tools()).tools}
-            assert names == {"search", "read", "at_date", "history"}
-            res = await session.call_tool("search", {"query": "превышение установленной скорости"})
-            assert not res.isError
-            assert res.structuredContent["acts"][0]["act_code"] == KOAP_CODE
-            bad = await session.call_tool("read", {"act_code": "../../etc"})
-            assert bad.isError and "act_code" in bad.content[0].text
+    async with (
+        streamable_http_client(f"{server_url}/mcp") as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        init = await session.initialize()
+        assert "citation" in init.instructions
+        names = {t.name for t in (await session.list_tools()).tools}
+        assert names == {"search", "read", "at_date", "history"}
+        res = await session.call_tool("search", {"query": "превышение установленной скорости"})
+        assert not res.isError
+        assert res.structuredContent["acts"][0]["act_code"] == KOAP_CODE
+        bad = await session.call_tool("read", {"act_code": "../../etc"})
+        assert bad.isError and "act_code" in bad.content[0].text
 
 
 def test_landing_and_health(server_url):

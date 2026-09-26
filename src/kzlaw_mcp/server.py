@@ -87,37 +87,65 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
     corpus = corpus or Corpus(settings)
     gate = Gate(settings)
     mcp = FastMCP(
-        "kazakhstan-law", instructions=INSTRUCTIONS, host=settings.host, port=settings.port,
-        stateless_http=True, json_response=True,
+        "kazakhstan-law",
+        instructions=INSTRUCTIONS,
+        host=settings.host,
+        port=settings.port,
+        stateless_http=True,
+        json_response=True,
     )
 
     @mcp.tool(description=SEARCH_DESC)
-    async def search(ctx: Context, query: str, lang: Lang = "rus",
-                     scopes: list[str] | None = None, limit: int = 20) -> dict[str, Any]:
+    async def search(
+        ctx: Context,
+        query: str,
+        lang: Lang = "rus",
+        scopes: list[str] | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
         args = {"query": query, "lang": lang, "scopes": scopes, "limit": limit}
-        return await gate.call("search", args, _request(ctx),
-                               lambda: search_tool(corpus, query, lang, scopes, limit))
+        return await gate.call(
+            "search", args, _request(ctx), lambda: search_tool(corpus, query, lang, scopes, limit)
+        )
 
     @mcp.tool(description=READ_DESC)
-    async def read(ctx: Context, act_code: str, lang: Lang = "rus", anchor: str | None = None,
-                   point: str | None = None) -> dict[str, Any]:
+    async def read(
+        ctx: Context,
+        act_code: str,
+        lang: Lang = "rus",
+        anchor: str | None = None,
+        point: str | None = None,
+    ) -> dict[str, Any]:
         args = {"act_code": act_code, "lang": lang, "anchor": anchor, "point": point}
-        return await gate.call("read", args, _request(ctx),
-                               lambda: read_tool(corpus, act_code, lang, anchor, point))
+        return await gate.call(
+            "read", args, _request(ctx), lambda: read_tool(corpus, act_code, lang, anchor, point)
+        )
 
     @mcp.tool(description=AT_DATE_DESC)
-    async def at_date(ctx: Context, act_code: str, date: str, lang: Lang = "rus",
-                      anchor: str | None = None, point: str | None = None) -> dict[str, Any]:
+    async def at_date(
+        ctx: Context,
+        act_code: str,
+        date: str,
+        lang: Lang = "rus",
+        anchor: str | None = None,
+        point: str | None = None,
+    ) -> dict[str, Any]:
         args = {"act_code": act_code, "date": date, "lang": lang, "anchor": anchor, "point": point}
-        return await gate.call("at_date", args, _request(ctx),
-                               lambda: at_date_tool(corpus, act_code, date, lang, anchor, point))
+        return await gate.call(
+            "at_date",
+            args,
+            _request(ctx),
+            lambda: at_date_tool(corpus, act_code, date, lang, anchor, point),
+        )
 
     @mcp.tool(description=HISTORY_DESC)
-    async def history(ctx: Context, act_code: str, phrase: str | None = None,
-                      limit: int = 30) -> dict[str, Any]:
+    async def history(
+        ctx: Context, act_code: str, phrase: str | None = None, limit: int = 30
+    ) -> dict[str, Any]:
         args = {"act_code": act_code, "phrase": phrase, "limit": limit}
-        return await gate.call("history", args, _request(ctx),
-                               lambda: history_tool(corpus, act_code, phrase, limit))
+        return await gate.call(
+            "history", args, _request(ctx), lambda: history_tool(corpus, act_code, phrase, limit)
+        )
 
     @mcp.custom_route("/", methods=["GET"])
     async def landing(request: Request) -> PlainTextResponse:
