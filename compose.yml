@@ -13,7 +13,8 @@ services:
       - ./data/corpus:/corpus:ro
       - ./data/logs:/logs
     ports:
-      - "8765:8000"
+      # Loopback unless KZLAW_BIND says otherwise (latitude: its tailnet address, for hub).
+      - "${KZLAW_BIND:-127.0.0.1}:8765:8000"
     read_only: true
     tmpfs: [/tmp]
     restart: unless-stopped
