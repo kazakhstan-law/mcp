@@ -25,7 +25,9 @@ def _check_locators(anchor: str | None, point: str | None) -> tuple[str | None, 
     anchor = anchor.strip() if anchor else None
     point = point.strip() if point else None
     if anchor and not ANCHOR_ID.match(anchor):
-        raise InputError("anchor looks like st592, st62-1 or an3_st1 (take it from search hits)")
+        raise InputError(
+            "anchor looks like st592, an3_st1 or an0_p168-1 (take it from search hits)"
+        )
     if point and not POINT_LABEL.match(point):
         raise InputError("point is a label like 168-1 or 3 (take it from search hits)")
     return anchor, point

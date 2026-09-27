@@ -62,8 +62,32 @@ def test_chapter_heading_resets_the_anchor():
 
 
 def test_grammar():
-    for ok in ("st592", "st62-1", "an3_st1", "st62_p2", "st62_p2_sp3"):
+    for ok in ("st592", "st62-1", "an3_st1", "st62_p2", "st62_p2_sp3", "p168-1", "an0_p168-1"):
         assert ANCHOR_ID.match(ok)
-    for bad in ("592", "st", "../st1", "st1;rm", "ST592"):
+    for bad in ("592", "st", "../st1", "st1;rm", "ST592", "p", "an0_", "p1_st2"):
         assert not ANCHOR_ID.match(bad)
     assert POINT_LABEL.match("168-1") and not POINT_LABEL.match("1.2; x")
+
+
+POINT_ANCHORED = (
+    "## Глава 24. Движение средств индивидуальной мобильности\n\n"
+    '<a id="an0_p168"></a>\n\n168. Первый пункт.\n\nпродолжение\n\n'
+    '<a id="an0_p168-1"></a>\n\n168-1. Лицам до восемнадцати лет.\n\n'
+    '<a id="an0_p169"></a>\n\n169. Следующий пункт.\n'
+)
+
+
+def test_a_point_anchor_spans_its_point_alone():
+    # Corpus builds from 2026-09-27 anchor the points of an order that has no articles.
+    span = article_span(POINT_ANCHORED, "an0_p168-1")
+    assert span.text.splitlines()[0] == '<a id="an0_p168-1"></a>'
+    assert "восемнадцати" in span.text and "169." not in span.text
+    [part] = point_spans(POINT_ANCHORED, "168-1", within=span)
+    assert part.text == "168-1. Лицам до восемнадцати лет."
+
+
+def test_line_context_reports_the_point_anchor():
+    lines = POINT_ANCHORED.split("\n")
+    lineno = next(i for i, l in enumerate(lines, 1) if l == "продолжение")
+    ctx = line_context(lines, lineno)
+    assert (ctx.anchor, ctx.point) == ("an0_p168", "168")

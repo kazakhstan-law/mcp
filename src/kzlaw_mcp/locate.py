@@ -1,9 +1,11 @@
 """Find an article, a point, or the context of a line inside one rendered act file.
 
 Pure functions over text. Articles carry explicit anchors (`<a id="st592"></a>` on its own
-line, then the heading). Many orders (e.g. the traffic rules) have no anchors at all: their
-points are lines starting with a label such as `168-1. `, and a repealed point is italic
-(`*167. Исключен …*`). Annexes restart point numbering, so a label can repeat in one file.
+line, then the heading). An order has no articles, so from the 2026-09-27 corpus build its
+outermost points carry one instead (`<a id="an0_p168-1"></a>` above `168-1. …`); a build
+before that has none, and a point is then found by its label alone — a line starting with
+`168-1. `, or italic when repealed (`*167. Исключен …*`). Annexes restart point numbering,
+so a label can repeat in one file; the `an0_` qualifier is what separates them.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from dataclasses import dataclass
 
 ANCHOR_LINE = re.compile(r'^<a id="([^"]+)"></a>$')
 _N = r"[0-9]+(?:-[0-9]+)*"
-ANCHOR_ID = re.compile(rf"^(?:an{_N}_)?st{_N}(?:_p{_N})?(?:_sp{_N})?$")
+ANCHOR_ID = re.compile(rf"^(?:an{_N}_)*(?:st{_N}(?:_p{_N})?(?:_sp{_N})?|p{_N})$")
 POINT_LABEL = re.compile(rf"^{_N}$")
 POINT_START = re.compile(rf"^\*?({_N})\.\s")
 HEADING = re.compile(r"^(#{1,6})\s+(.*\S)")
