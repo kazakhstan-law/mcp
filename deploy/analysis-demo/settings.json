@@ -1,0 +1,13 @@
+{
+  "model": "claude-opus-5-5",
+  "claudeMdExcludes": ["/home/me/CLAUDE.md", "/home/me/.claude/CLAUDE.md", "/home/me/.gortex/**"],
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": ["Bash", "Read", "Grep", "Glob", "Write", "Edit"],
+    "deny": [
+      "WebFetch", "WebSearch",
+      "Bash(git push:*)", "Bash(git checkout:*)", "Bash(git reset:*)", "Bash(git fetch:*)",
+      "Bash(git pull:*)", "Bash(git commit:*)", "Bash(rm:*)"
+    ]
+  }
+}
