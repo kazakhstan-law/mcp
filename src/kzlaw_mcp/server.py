@@ -37,7 +37,9 @@ searched as "форм[аеуы] 270". A question about a form is answered from t
 approves it ("Об утверждении формы …"): read that order and run history on it.
 4. Pick the mode: the law now -> read; the law on a past date ("оштрафовали в 2022") -> \
 at_date on that date, compared with read; "since when" -> history with a short exact phrase \
-from the current text (case-sensitive); the oldest commit is when it appeared.
+from the current text (case-sensitive); `introduced` is when it appeared. A new code that \
+replaced a repealed one lists it in history's `predecessors`; at_date on the new code before \
+it took effect returns the old code's text, so a past date never needs the old code's number.
 5. Answer in the user's language, in plain words: one or two sentences first, then the key \
 points each with its citation, then, if the cited text changed recently, "изменено \
 DD.MM.YYYY <amending act>" from history.
@@ -76,12 +78,14 @@ READ_DESC = (
 )
 AT_DATE_DESC = (
     "Like read, but the text in force on a past date (YYYY-MM-DD): for 'what was the rule when "
-    "it happened'. The citation is pinned to that date's version."
+    "it happened'. The citation is pinned to that date's version. Before a code took effect it "
+    "returns the text of the repealed code it replaced (replaced_by names the new one)."
 )
 HISTORY_DESC = (
     "The act's versions from git: date and amending act (number, title, code) of each. With "
     "phrase, only versions that added or removed that exact, case-sensitive text; the oldest is "
-    "when it entered the act. Covers this act only."
+    "when it entered the law. predecessors: the repealed acts it replaced (an earlier code), "
+    "with their versions."
 )
 
 

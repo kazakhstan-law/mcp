@@ -136,12 +136,33 @@ def at_date(
         dt.date.fromisoformat(date)
     except (TypeError, ValueError):
         raise InputError("date must be YYYY-MM-DD") from None
-    ref = corpus.find(act_code)
-    g = corpus.git(ref.scope)
+    asked = corpus.find_any(act_code)
+    g = corpus.git(asked.scope)
     sha = g.rev_before(date)
     if sha is None:
         raise InputError(f"the corpus has no history before {date}")
+    ref, extra = asked, {}
     if not g.ls_tree(sha, f"{ref.path}/meta.yaml"):
-        raise InputError(f"act {ref.code} was not in force on {date} (it enters the corpus later)")
+        # Before an act replaced a repealed one (a new code for an old), the old one was the law.
+        pred = next(
+            (p for p in corpus.predecessors(ref) if g.ls_tree(sha, f"{p.ref.path}/meta.yaml")),
+            None,
+        )
+        if pred is not None:
+            ref = pred.ref
+            extra = {
+                "replaced_by": asked.code,
+                "note": f"act {asked.code} was not yet in force on {date}; this is the text of "
+                f"act {ref.code}, which it later replaced",
+            }
+        elif replaced := corpus.replaced(asked.code):
+            raise InputError(
+                f"act {asked.code} was not in force on {date}; it was repealed and replaced by "
+                f"act {replaced.successor} (history on {asked.code} shows its dates)"
+            )
+        else:
+            raise InputError(
+                f"act {asked.code} was not in force on {date} (it enters the corpus later)"
+            )
     res = _passages(corpus, ref, sha, lang, anchor, point, f"on {date}")
-    return res | {"as_of": date, "commit_date": g.commit_date(sha)}
+    return res | extra | {"as_of": date, "commit_date": g.commit_date(sha)}

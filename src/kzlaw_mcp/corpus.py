@@ -32,6 +32,21 @@ class ActRef:
     path: str
 
 
+@dataclass(frozen=True)
+class Predecessor:
+    """A repealed act that an act in force replaced (`replaces:` in the successor's meta.yaml).
+
+    Its files are deleted at the repeal, so it has no meta.yaml at HEAD: what is known about it
+    comes from the successor's `replaces:` entry, and its text from the history before the repeal.
+    """
+
+    ref: ActRef
+    successor: str
+    title: dict
+    requisite: str
+    link: str
+
+
 def check_lang(lang: str) -> str:
     if lang not in LANGS:
         raise InputError("lang must be 'rus' or 'kaz'")
@@ -58,6 +73,7 @@ class Corpus:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._index: dict[str, ActRef] = {}
+        self._replaced: dict[str, Predecessor] = {}
         self._heads: dict[str, str] = {}
         self._checked = float("-inf")
         self._lock = threading.Lock()
@@ -85,9 +101,50 @@ class Corpus:
         try:
             return self._index[code]
         except KeyError:
+            pass
+        if pred := self._replaced.get(code):
             raise InputError(
-                f"act {code} is not in the corpus (only acts in force are indexed); use search"
-            ) from None
+                f"act {code} was repealed and replaced by act {pred.successor}: read "
+                f"{pred.successor} for the law now; at_date or history on {code} for its past text"
+            )
+        raise InputError(
+            f"act {code} is not in the corpus (only acts in force are indexed); use search"
+        )
+
+    def find_any(self, act_code: str) -> ActRef:
+        """Like find, but also a repealed act that an act in force replaced."""
+        code = str(act_code).strip()
+        self._refresh()
+        if pred := self._replaced.get(code):
+            return pred.ref
+        return self.find(code)
+
+    def replaced(self, code: str) -> Predecessor | None:
+        self._refresh()
+        return self._replaced.get(code)
+
+    def last_sha(self, ref: ActRef) -> str:
+        """The last commit at which the act's files exist: HEAD, or the parent of its repeal."""
+        head = self.head(ref.scope)
+        if self.git(ref.scope).ls_tree(head, f"{ref.path}/meta.yaml"):
+            return head
+        gone = self.git(ref.scope).log("-1", "--format=%H", head, "--", f"{ref.path}/meta.yaml")
+        return f"{gone.strip()}^"
+
+    def predecessors(self, ref: ActRef, sha: str | None = None) -> list[Predecessor]:
+        """The acts `ref` replaced, as its meta.yaml names them at `sha` (default: its last)."""
+        meta = self.meta(ref, sha or self.last_sha(ref))
+        return [
+            Predecessor(
+                ActRef(str(e["code"]), ref.scope, e["path"]),
+                ref.code,
+                e.get("title") or {},
+                e.get("requisite", ""),
+                e.get("link", ""),
+            )
+            for e in meta.get("replaces") or []
+            if e.get("code") and e.get("path")
+        ]
 
     def meta(self, ref: ActRef, sha: str) -> dict:
         return yaml.safe_load(self.git(ref.scope).blob(sha, f"{ref.path}/meta.yaml")) or {}
@@ -134,6 +191,9 @@ class Corpus:
                 except CommandError:  # missing, or a clone still in progress: skip the scope
                     self._heads.pop(scope, None)
                     self._index = {c: r for c, r in self._index.items() if r.scope != scope}
+                    self._replaced = {
+                        c: p for c, p in self._replaced.items() if p.ref.scope != scope
+                    }
             self._checked = time.monotonic()
 
     def _reindex(self, scope: str, head: str) -> None:
@@ -149,4 +209,14 @@ class Corpus:
                 code = str((yaml.safe_load(g.blob(head, path)) or {}).get("act_code", ""))
             if code:
                 index[code] = ActRef(code, scope, act_dir)
+        replaced = {c: p for c, p in self._replaced.items() if p.ref.scope != scope}
+        for path, _ in g.grep(head, "^replaces:", [":(glob)**/meta.yaml"], fixed=False):
+            code = CODE_IN_PATH.search(path)
+            succ = index.get(code.group(1)) if code else None
+            if succ is None:
+                continue
+            for pred in self.predecessors(succ, head):
+                if pred.ref.code not in index:
+                    replaced[pred.ref.code] = pred
         self._index = index
+        self._replaced = replaced

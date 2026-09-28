@@ -16,6 +16,10 @@ KOAP_CODE = "81245"
 PDD = "07-ministerial/103003000000-qriim/2023/0630-ob-utverzhdenii-pravil-dorozhnogo-dvizheniia-183572"
 PDD_CODE = "183572"
 CONST_CODE = "1005029"
+OLD_WATER = "02-codes/2003/0709-vodnyi-kodeks-respubliki-kazakhstan-3880"
+OLD_WATER_CODE = "3880"
+WATER = "02-codes/2025/0409-vodnyi-kodeks-respubliki-kazakhstan-209026"
+WATER_CODE = "209026"
 
 
 def meta(code: str, title: str, requisite: str) -> str:
@@ -163,6 +167,44 @@ def corpus_root(tmp_path_factory) -> Path:
             "Cause-Act-Requisite": "Закон РК от 3 октября 2024 года № 131-VIII",
             "Acts-Changed": "1",
         },
+    )
+
+    water_1 = '# Водный кодекс\n\n<a id="st1"></a>\n\n### 1-бап. Су қоры\n\n1. Водный фонд включает водные объекты.\n'
+    water_2 = water_1 + "\n2. Реки и озёра охраняются государством.\n"
+    old_meta = meta(
+        OLD_WATER_CODE, "Водный кодекс Республики Казахстан", "Кодекс РК от 9 июля 2003 года № 481"
+    )
+    commit(
+        codes,
+        "2024-11-01",
+        {f"{OLD_WATER}/meta.yaml": old_meta, f"{OLD_WATER}/rus.md": water_1},
+        "Водный кодекс",
+    )
+    commit(
+        codes,
+        "2024-12-01",
+        {f"{OLD_WATER}/rus.md": water_2},
+        "№150-VIII О внесении изменений в Водный кодекс",
+        {"Cause-Act-Code": "999150", "Acts-Changed": "1"},
+    )
+    new_meta = meta(
+        WATER_CODE,
+        "Водный кодекс Республики Казахстан",
+        "Кодекс РК от 9 апреля 2025 года № 178-VIII",
+    ) + (
+        "replaces:\n"
+        f"- code: '{OLD_WATER_CODE}'\n"
+        "  requisite: Кодекс РК от 9 июля 2003 года № 481\n"
+        "  title:\n    rus: Водный кодекс Республики Казахстан\n    kaz: Су кодексі\n"
+        f"  link: https://zan.gov.kz/client/#!/doc/{OLD_WATER_CODE}/rus\n"
+        f"  path: {OLD_WATER}\n"
+    )
+    commit(
+        codes,
+        "2025-04-09",
+        {OLD_WATER: None, f"{WATER}/meta.yaml": new_meta, f"{WATER}/rus.md": water_2},
+        "№178-VIII Водный кодекс Республики Казахстан",
+        {"Cause-Act-Code": WATER_CODE, "Acts-Changed": "2"},
     )
 
     ministerial = init(root / "ministerial")
