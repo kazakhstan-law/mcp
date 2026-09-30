@@ -48,7 +48,9 @@ it took effect returns the old code's text, so a past date never needs the old c
 "What changed", "что нового в законе" -> history for the versions, then changes(act_code, sha) \
 on each recent one: it lists the articles added, removed and modified, with the diff. An \
 amending act ("О внесении изменений…") has no text here: changes on its code lists the acts \
-it changed. "What will change" -> read without anchor: `pending` lists provisions enacted \
+it changed. A rule older than the act now in force may come from a repealed act that no \
+`predecessors` names: search with include_repealed=true lists repealed acts by title, then \
+search(act_code) inside one and at_date before its repealed_on. "What will change" -> read without anchor: `pending` lists provisions enacted \
 but not in force yet. To find something inside one act, pass act_code to search.
 5. Answer in the user's language, in plain words: one or two sentences first, then the key \
 points each with its citation, then, if the cited text changed recently, "изменено \
@@ -80,7 +82,9 @@ SEARCH_DESC = (
     "label (e.g. 168-1) to pass to read. Scopes: codes (constitution, codes, laws), government, "
     "ministerial by default (keep them: forms and rules are ministerial orders); "
     "local-<region> only for regional questions. With act_code, only inside that act, with "
-    "every matching line. Each line is one paragraph, so 'A.*B' never spans two; a stem "
+    "every matching line; for a repealed act, in its last version. include_repealed: also "
+    "the repealed acts whose title matches (for the law before the acts now in force). Each "
+    "line is one paragraph, so 'A.*B' never spans two; a stem "
     "followed by more words needs '\\w*' ('банкротств\\w* граждан')."
 )
 READ_DESC = (
@@ -137,6 +141,7 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
         scopes: list[str] | None = None,
         limit: int = 20,
         act_code: str | None = None,
+        include_repealed: bool = False,
     ) -> dict[str, Any]:
         args = {
             "query": query,
@@ -144,12 +149,13 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             "scopes": scopes,
             "limit": limit,
             "act_code": act_code,
+            "include_repealed": include_repealed,
         }
         return await gate.call(
             "search",
             args,
             _request(ctx),
-            lambda: search_tool(corpus, query, lang, scopes, limit, act_code),
+            lambda: search_tool(corpus, query, lang, scopes, limit, act_code, include_repealed),
         )
 
     @mcp.tool(description=READ_DESC)

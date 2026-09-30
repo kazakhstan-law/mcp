@@ -187,6 +187,11 @@ def at_date(
                 f"act {asked.code} was not in force on {date}; it was repealed and replaced by "
                 f"act {replaced.successor} (history on {asked.code} shows its dates)"
             )
+        elif (repeal := corpus.repeal(ref)) and repeal[1] <= date:
+            raise InputError(
+                f"act {asked.code} was repealed on {repeal[1]}: pass a date before that "
+                f"(history on {asked.code} shows its versions)"
+            )
         else:
             raise InputError(
                 f"act {asked.code} was not in force on {date} (it enters the corpus later)"

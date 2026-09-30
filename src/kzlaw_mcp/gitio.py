@@ -16,6 +16,7 @@ class Output:
     text: str
     truncated: bool
     returncode: int
+    raw: bytes = b""
 
 
 def run(
@@ -25,9 +26,12 @@ def run(
     timeout: float,
     max_bytes: int = 2_000_000,
     ok: tuple[int, ...] = (0,),
+    stdin: bytes | None = None,
 ) -> Output:
     try:
-        proc = subprocess.run(args, cwd=cwd, capture_output=True, timeout=timeout, check=False)
+        proc = subprocess.run(
+            args, cwd=cwd, input=stdin, capture_output=True, timeout=timeout, check=False
+        )
     except subprocess.TimeoutExpired as exc:
         raise CommandError(f"{args[0]} timed out after {timeout:.0f}s") from exc
     if proc.returncode not in ok:
@@ -35,7 +39,8 @@ def run(
         raise CommandError(f"{args[0]} exited {proc.returncode}: {err}")
     data = proc.stdout
     truncated = len(data) > max_bytes
-    return Output(data[:max_bytes].decode("utf-8", "replace"), truncated, proc.returncode)
+    data = data[:max_bytes]
+    return Output(data.decode("utf-8", "replace"), truncated, proc.returncode, data)
 
 
 class Git:
@@ -45,8 +50,16 @@ class Git:
         self.repo = repo
         self.timeout = timeout
 
-    def _git(self, *args: str, ok: tuple[int, ...] = (0,), max_bytes: int = 2_000_000) -> Output:
-        return run(["git", *args], self.repo, timeout=self.timeout, ok=ok, max_bytes=max_bytes)
+    def _git(
+        self,
+        *args: str,
+        ok: tuple[int, ...] = (0,),
+        max_bytes: int = 2_000_000,
+        stdin: bytes | None = None,
+    ) -> Output:
+        return run(
+            ["git", *args], self.repo, timeout=self.timeout, ok=ok, max_bytes=max_bytes, stdin=stdin
+        )
 
     def head(self) -> str:
         return self._git("rev-parse", "HEAD").text.strip()
@@ -94,6 +107,31 @@ class Git:
             hits.append((path, int(lineno)))
         return hits
 
+    def search(
+        self, sha: str, pattern: str, paths: list[str], max_count: int
+    ) -> list[tuple[str, int, str]]:
+        """(path, line, text) of lines matching the Perl regex `pattern`, any case, at `sha`."""
+        out = self._git(
+            "grep",
+            "-n",
+            "-i",
+            "-P",
+            "--max-count",
+            str(max_count),
+            "-e",
+            pattern,
+            sha,
+            "--",
+            *paths,
+            ok=(0, 1),
+            max_bytes=4_000_000,
+        )
+        hits = []
+        for line in out.text.splitlines():
+            _, path, lineno, text = line.split(":", 3)
+            hits.append((path, int(lineno), text))
+        return hits
+
     def grep_lines(
         self, sha: str, needles: list[str], paths: list[str]
     ) -> list[tuple[str, int, str]]:
@@ -112,5 +150,32 @@ class Git:
         """The number of commits `git rev-list` lists for `args`."""
         return int(self._git("rev-list", "--count", *args).text.strip() or 0)
 
-    def log(self, *args: str) -> str:
-        return self._git("log", *args, max_bytes=1_000_000).text
+    def blobs(self, specs: list[str]) -> list[str | None]:
+        """The contents of `<rev>:<path>` blobs in one process; None for one that is missing."""
+        out = self._git(
+            "cat-file",
+            "--batch",
+            stdin="".join(f"{s}\n" for s in specs).encode(),
+            max_bytes=256_000_000,
+        )
+        if out.truncated:
+            raise CommandError("cat-file output too large")
+        data, pos, found = out.raw, 0, []
+        for _ in specs:
+            end = data.index(b"\n", pos)
+            header = data[pos:end].split()
+            if len(header) < 3 or header[1] != b"blob":  # "<spec> missing"
+                found.append(None)
+                pos = end + 1
+                continue
+            size = int(header[2])
+            found.append(data[end + 1 : end + 1 + size].decode("utf-8", "replace"))
+            pos = end + 1 + size + 1
+        return found
+
+    def log(self, *args: str, max_bytes: int = 1_000_000, strict: bool = False) -> str:
+        """`git log`, cut at `max_bytes`; with `strict`, output past it is an error instead."""
+        out = self._git("log", *args, max_bytes=max_bytes)
+        if strict and out.truncated:
+            raise CommandError(f"git log output exceeds {max_bytes} bytes")
+        return out.text

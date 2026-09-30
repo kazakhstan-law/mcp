@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -25,6 +26,112 @@ NO_HITS = (
     "ending: 'банкротств\\w* граждан', not 'банкротств граждан'."
 )
 HINT = "Open a passage with read(act_code, anchor=...) or read(act_code, point=...)."
+MAX_REPEALED = 20
+REPEALED_HINT = (
+    "This act is repealed: the hits are from its last version, as_of. Open a passage with "
+    "at_date(act_code, date=as_of, anchor=...)."
+)
+REPEALED_NOTE = (
+    "repealed: acts no longer in force whose title matches the query, with the day each was "
+    "repealed. Search inside one with search(act_code=...), read it with at_date on a date "
+    "before repealed_on, see its versions with history."
+)
+
+
+def _search_repealed_act(
+    corpus: Corpus, ref: ActRef, query: str, lang: str, limit: int, repeal: tuple[str, str]
+) -> dict:
+    """search inside an act that is no longer in force: its last version, from git objects."""
+    g = corpus.git(ref.scope)
+    sha = g.rev_parse(f"{repeal[0]}^")
+    assert sha is not None
+    files = corpus.lang_files(ref, sha, lang)
+    if not files:
+        raise InputError(f"act {ref.code} has no '{lang}' text")
+    try:
+        found = g.search(sha, query, files, limit + 1)
+    except CommandError as exc:
+        raise InputError(f"search failed (is the regex valid?): {exc}") from exc
+    meta = corpus.meta(ref, sha)
+    texts: dict[str, list[str]] = {}
+    hits = []
+    for rel, lineno, text in found[:limit]:
+        if rel not in texts:
+            texts[rel] = g.blob(sha, rel).split("\n")
+        ctx = line_context(texts[rel], lineno)
+        hits.append(
+            {
+                "file": rel,
+                "line": lineno,
+                "anchor": ctx.anchor,
+                "point": ctx.point,
+                "heading": ctx.heading,
+                "text": text.strip()[:MAX_LINE],
+                "url": corpus.citation_url(
+                    ref,
+                    sha,
+                    rel,
+                    anchor=ctx.anchor,
+                    lines=(lineno, lineno),
+                    size=g.blob_size(sha, rel),
+                ),
+            }
+        )
+    acts = (
+        [
+            {
+                "act_code": ref.code,
+                "scope": ref.scope,
+                "title": title_of(meta, lang),
+                "requisite": meta.get("requisite", ""),
+                "repealed_on": repeal[1],
+                # the act's own last version: its parent commit can share the repeal's date
+                "as_of": g.log("-1", "--format=%cs", sha, "--", ref.path).strip(),
+                "hits": hits,
+            }
+        ]
+        if hits
+        else []
+    )
+    return {
+        "query": query,
+        "lang": lang,
+        "scopes": [ref.scope],
+        "act_code": ref.code,
+        "missing_scopes": [],
+        "sha": {ref.scope: sha},
+        "truncated": len(found) > limit,
+        "acts": acts,
+        "hint": REPEALED_HINT if acts else NO_HITS,
+    }
+
+
+def _repealed_titles(corpus: Corpus, query: str, lang: str, scopes: list[str]) -> dict:
+    try:
+        pattern = re.compile(query, re.IGNORECASE)
+    except re.error:
+        return {"repealed": [], "repealed_note": "the query is not a valid regex for titles"}
+    found = []
+    for scope in scopes:
+        acts = corpus.repealed_in(scope)
+        for code, info in corpus.repealed_titles(scope).items():
+            title = info["title"].get(lang) or info["title"].get("rus") or ""
+            if pattern.search(title):
+                found.append(
+                    {
+                        "act_code": code,
+                        "scope": scope,
+                        "title": title,
+                        "requisite": info["requisite"],
+                        "repealed_on": acts[code].date,
+                    }
+                )
+    found.sort(key=lambda a: a["repealed_on"], reverse=True)
+    return {
+        "repealed": found[:MAX_REPEALED],
+        "repealed_more": max(0, len(found) - MAX_REPEALED),
+        "repealed_note": REPEALED_NOTE,
+    }
 
 
 def _act_dir(rel: str, lang: str) -> str:
@@ -41,12 +148,22 @@ def search(
     scopes: list[str] | None = None,
     limit: int = MAX_HITS,
     act_code: str | None = None,
+    include_repealed: bool = False,
 ) -> dict:
     query = (query or "").strip()
     if not 2 <= len(query) <= MAX_QUERY:
         raise InputError(f"query must be 2..{MAX_QUERY} characters")
     lang = check_lang(lang)
-    act = corpus.find(act_code) if act_code else None
+    act = None
+    if act_code:
+        try:
+            act = corpus.find(act_code)
+        except InputError:
+            gone = corpus.find_any(act_code)  # raises for a code that never was an act
+            repeal = corpus.repeal(gone)
+            assert repeal is not None
+            limit = max(1, min(int(limit), MAX_HITS))
+            return _search_repealed_act(corpus, gone, query, lang, limit, repeal)
     if act:
         scopes = [act.scope]
     wanted = list(dict.fromkeys(scopes)) if scopes else list(DEFAULT_SCOPES)
@@ -171,4 +288,4 @@ def search(
         or sum(len(h) for _, h in ranked) > used,
         "acts": acts,
         "hint": HINT if acts else NO_HITS,
-    }
+    } | (_repealed_titles(corpus, query, lang, wanted) if include_repealed and not act else {})

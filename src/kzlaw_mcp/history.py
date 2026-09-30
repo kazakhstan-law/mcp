@@ -216,8 +216,9 @@ def history(
         "scope": ref.scope,
         "title": replaced.title.get("rus", "")
         if replaced
-        else title_of(corpus.meta(ref, corpus.head(ref.scope)), "rus"),
+        else title_of(corpus.meta(ref, corpus.last_sha(ref)), "rus"),
         "repealed_and_replaced_by": replaced.successor if replaced else None,
+        "repealed_on": repeal[1] if (repeal := corpus.repeal(ref)) else None,
         "phrase": phrase,
         **own,
         "introduced": introduced,

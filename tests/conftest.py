@@ -23,6 +23,8 @@ WATER_CODE = "209026"
 PD = "03-laws/2013/0521-o-personalnykh-dannykh-i-ikh-zashchite-72730"
 PD_CODE = "72730"
 PD_AMENDER = "221115"
+LABOUR = "03-laws/1999/1210-o-trude-v-respublike-kazakhstan-4875"
+LABOUR_CODE = "4875"
 
 
 def meta(code: str, title: str, requisite: str) -> str:
@@ -171,6 +173,33 @@ def corpus_root(tmp_path_factory) -> Path:
         },
         "Конституция",
     )
+    # Repealed in 2007 with no act in force naming it in `replaces:`.
+    labour = (
+        "# О труде в Республике Казахстан\n\n"
+        '<a id="st12"></a>\n\n### Статья 12. Форма трудового договора\n\n'
+        "1. Индивидуальный трудовой договор заключается в письменной форме.\n"
+    )
+    commit(
+        codes,
+        "1999-12-10",
+        {
+            f"{LABOUR}/meta.yaml": meta(
+                LABOUR_CODE,
+                "О труде в Республике Казахстан",
+                "Закон РК от 10 декабря 1999 года N 493",
+            ),
+            f"{LABOUR}/rus.md": labour,
+        },
+        "О труде",
+    )
+    commit(
+        codes,
+        "2007-01-12",
+        {f"{LABOUR}/rus.md": labour + "\n2. Экземпляр договора выдаётся работнику.\n"},
+        "№224 О внесении изменений",
+        {"Cause-Act-Code": "31399", "Acts-Changed": "1"},
+    )
+    commit(codes, "2007-05-15", {LABOUR: None}, "№252 О введении в действие Трудового кодекса")
     koap_meta = meta(
         KOAP_CODE,
         "Об административных правонарушениях",

@@ -47,6 +47,23 @@ class Predecessor:
     link: str
 
 
+@dataclass(frozen=True)
+class Repealed:
+    """An act repealed without a successor that names it: its files were deleted at `sha`.
+
+    Its text is in the history only, up to `sha`'s parent; `date` is when the repeal took effect.
+    """
+
+    ref: ActRef
+    date: str
+    sha: str
+
+
+def _load_meta(text: str) -> dict:
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    return yaml.load(text, Loader=loader) or {}
+
+
 def check_lang(lang: str) -> str:
     if lang not in LANGS:
         raise InputError("lang must be 'rus' or 'kaz'")
@@ -77,6 +94,10 @@ class Corpus:
         self._heads: dict[str, str] = {}
         self._checked = float("-inf")
         self._lock = threading.Lock()
+        # Built on first use, per scope and head: listing every deletion takes seconds.
+        self._repealed: dict[str, tuple[str, dict[str, Repealed]]] = {}
+        self._titles: dict[str, tuple[str, dict[str, dict]]] = {}
+        self._repealed_lock = threading.Lock()
 
     def scopes(self) -> list[str]:
         """Scopes whose clone has a commit. A clone still in progress has `.git` but no HEAD."""
@@ -107,6 +128,14 @@ class Corpus:
                 f"act {code} was repealed and replaced by act {pred.successor}: read "
                 f"{pred.successor} for the law now; at_date or history on {code} for its past text"
             )
+        if rep := self.repealed(code):
+            title = title_of(self.repealed_meta(rep), "rus")
+            raise InputError(
+                f"act {code} ({title}) was repealed on {rep.date} and is not the law now. Its "
+                f"text is in the history: search(act_code='{code}') searches its last version, "
+                f"at_date(act_code='{code}', date before {rep.date}) reads it, history lists its "
+                "versions"
+            )
         raise InputError(
             f"act {code} is not in the corpus (only acts in force are indexed). An amending act "
             f"('О внесении изменений…') is kept only as the versions it made: changes(act_code="
@@ -114,12 +143,87 @@ class Corpus:
         )
 
     def find_any(self, act_code: str) -> ActRef:
-        """Like find, but also a repealed act that an act in force replaced."""
+        """Like find, but also a repealed act: one an act in force replaced, or any other."""
         code = str(act_code).strip()
         self._refresh()
         if pred := self._replaced.get(code):
             return pred.ref
+        if code not in self._index and ACT_CODE.match(code) and (rep := self.repealed(code)):
+            return rep.ref
         return self.find(code)
+
+    def repealed(self, code: str) -> Repealed | None:
+        """A repealed act that no act in force names as replaced; None for any other code."""
+        code = str(code).strip()
+        self._refresh()
+        if code in self._index or code in self._replaced:
+            return None
+        for scope in self.scopes():
+            if rep := self.repealed_in(scope).get(code):
+                return rep
+        return None
+
+    def repealed_in(self, scope: str) -> dict[str, Repealed]:
+        head = self.head(scope)
+        with self._repealed_lock:
+            cached = self._repealed.get(scope)
+            if cached and cached[0] == head:
+                return cached[1]
+        out = self.git(scope).log(
+            "--diff-filter=D",
+            "--format=%x1e%H%x1f%cs",
+            "--name-only",
+            head,
+            "--",
+            ":(glob)**/meta.yaml",
+            max_bytes=64_000_000,
+            strict=True,
+        )
+        found: dict[str, Repealed] = {}
+        for record in out.split("\x1e"):
+            header, _, names = record.strip("\n").partition("\n")
+            if not header:
+                continue
+            sha, date = header.split("\x1f")
+            for name in names.split("\n"):
+                m = CODE_IN_PATH.search(name)
+                # newest first: an act deleted twice (moved, then repealed) keeps its repeal
+                if m and m.group(1) not in found:
+                    found[m.group(1)] = Repealed(
+                        ActRef(m.group(1), scope, name.rsplit("/", 1)[0]), date, sha
+                    )
+        with self._lock:
+            live = set(self._index) | set(self._replaced)
+        found = {c: r for c, r in found.items() if c not in live}
+        with self._repealed_lock:
+            self._repealed[scope] = (head, found)
+        return found
+
+    def repealed_meta(self, rep: Repealed) -> dict:
+        return self.meta(rep.ref, f"{rep.sha}^")
+
+    def repealed_titles(self, scope: str) -> dict[str, dict]:
+        """code -> {title, requisite} of every repealed act in `scope`, from one cat-file."""
+        head = self.head(scope)
+        with self._repealed_lock:
+            cached = self._titles.get(scope)
+            if cached and cached[0] == head:
+                return cached[1]
+        acts = list(self.repealed_in(scope).values())
+        blobs = self.git(scope).blobs([f"{r.sha}^:{r.ref.path}/meta.yaml" for r in acts])
+        titles = {}
+        for rep, blob in zip(acts, blobs, strict=True):
+            if blob is None:
+                continue
+            # title and requisite come first; the rest of meta.yaml only costs parse time
+            meta = _load_meta(blob.split("\nform:", 1)[0])
+            titles[rep.ref.code] = {
+                "title": meta.get("title") or {},
+                "requisite": meta.get("requisite", ""),
+            }
+        with self._repealed_lock:
+            self._titles[scope] = (head, titles)
+        return titles
 
     def replaced(self, code: str) -> Predecessor | None:
         self._refresh()
@@ -127,11 +231,17 @@ class Corpus:
 
     def last_sha(self, ref: ActRef) -> str:
         """The last commit at which the act's files exist: HEAD, or the parent of its repeal."""
+        repeal = self.repeal(ref)
+        return f"{repeal[0]}^" if repeal else self.head(ref.scope)
+
+    def repeal(self, ref: ActRef) -> tuple[str, str] | None:
+        """(sha, date) of the commit that deleted the act's files; None while it is in force."""
         head = self.head(ref.scope)
         if self.git(ref.scope).ls_tree(head, f"{ref.path}/meta.yaml"):
-            return head
-        gone = self.git(ref.scope).log("-1", "--format=%H", head, "--", f"{ref.path}/meta.yaml")
-        return f"{gone.strip()}^"
+            return None
+        gone = self.git(ref.scope).log("-1", "--format=%H %cs", head, "--", f"{ref.path}/meta.yaml")
+        sha, date = gone.split()
+        return sha, date
 
     def predecessors(self, ref: ActRef, sha: str | None = None) -> list[Predecessor]:
         """The acts `ref` replaced, as its meta.yaml names them at `sha` (default: its last)."""
