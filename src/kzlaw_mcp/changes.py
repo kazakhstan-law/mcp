@@ -362,13 +362,21 @@ def changes(
             dt.date.fromisoformat(date)
         except (TypeError, ValueError):
             raise InputError("date must be YYYY-MM-DD") from None
+    code = str(act_code).strip()
     try:
         ref = corpus.find_any(act_code)
     except InputError:
-        code = str(act_code).strip()
         if code.isdigit() and (amended := amended_by(corpus, code, offset)):
             return amended
         raise
+    # Thousands of repealed acts also amended others (a law that enacts a code amends the
+    # rest): asked for no version of their own, they answer with the acts they changed.
+    if (
+        not (sha or date or anchor)
+        and corpus.repealed(code)
+        and (amended := amended_by(corpus, code, offset))
+    ):
+        return amended
 
     g = corpus.git(ref.scope)
     version = _version(corpus, ref, sha, date)

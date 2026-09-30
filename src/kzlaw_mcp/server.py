@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import threading
 from typing import Any, Literal
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -113,7 +115,8 @@ CHANGES_DESC = (
     "version by sha (from history) or by date (the version in force then); default: the latest. "
     "anchor narrows it to one article, in full. total and counts cover the whole version; a "
     "large one comes in pages: pass next_offset as offset for the next. For an amending act's "
-    "code: the acts it changed (acts_total distinct acts), paged the same way."
+    "code: the acts it changed (acts_total distinct acts), paged the same way; a repealed act "
+    "that also amended others answers so too unless sha or date is given."
 )
 
 
@@ -247,5 +250,16 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
     return mcp
 
 
+def _warm(corpus: Corpus) -> None:
+    """Build the repealed-act index before the first call needs it: seconds per scope."""
+    for scope in corpus.scopes():
+        # a cold index is only slower: the first call that needs it builds it
+        with contextlib.suppress(Exception):
+            corpus.repealed_titles(scope)
+
+
 def main() -> None:
-    build_server(Settings.from_env()).run(transport="streamable-http")
+    settings = Settings.from_env()
+    corpus = Corpus(settings)
+    threading.Thread(target=_warm, args=(corpus,), daemon=True).start()
+    build_server(settings, corpus).run(transport="streamable-http")

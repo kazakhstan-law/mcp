@@ -54,7 +54,12 @@ def test_history_and_changes_of_a_repealed_act(settings):
     assert res["title"] == "О труде в Республике Казахстан"
     assert res["repealed_on"] == "2007-05-15"
     assert [c["date"] for c in res["commits"]] == ["2007-05-15", "2007-01-12", "1999-12-10"]
-    assert changes(corpus, LABOUR_CODE)["version"]["date"] == "2007-01-12"
+    assert changes(corpus, LABOUR_CODE, date="2007-05-01")["version"]["date"] == "2007-01-12"
+
+
+def test_repealed_act_that_amended_others_lists_them(settings):
+    res = changes(Corpus(settings), LABOUR_CODE)
+    assert [a["act_code"] for a in res["acts_changed"]] == ["5000"]
 
 
 def test_amending_act_code_still_lists_what_it_changed(settings):

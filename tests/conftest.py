@@ -192,6 +192,23 @@ def corpus_root(tmp_path_factory) -> Path:
         },
         "О труде",
     )
+    employment = "03-laws/1998/0101-o-zaniatosti-5000"
+    commit(
+        codes,
+        "1998-01-01",
+        {
+            f"{employment}/meta.yaml": meta("5000", "О занятости", "Закон РК от 1998 года"),
+            f"{employment}/rus.md": "# О занятости\n\n1. Занятость добровольна.\n",
+        },
+        "О занятости",
+    )
+    commit(  # the labour law amended another act too, as many repealed laws did
+        codes,
+        "2000-01-01",
+        {f"{employment}/rus.md": "# О занятости\n\n1. Занятость добровольна и свободна.\n"},
+        "№493 О внесении изменений",
+        {"Cause-Act-Code": LABOUR_CODE, "Acts-Changed": "1"},
+    )
     commit(
         codes,
         "2007-01-12",
