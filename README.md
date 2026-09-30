@@ -51,6 +51,12 @@ it does nothing when the image already runs HEAD. With `git config core.hooksPat
 deploy/hooks` it runs by itself after every pull; logs: `journalctl --user -u 'kzlaw-deploy-*'`. Full clones of all 25 scopes take ≈ 1.8 GB packed
 and ≈ 6 GB of working trees.
 
+**Usage report**: with `KZLAW_LOG_PATH` set, each call is a line of JSON (the IP salted and
+hashed; for search, how much it found and whether the dictionary rewrote it).
+`docker compose exec server kzlaw-report --days 7` prints calls per day, tools, clients, the
+searches that found nothing, the dictionary's rewrites, reformulations (a miss, then a hit in
+the same conversation), errors and slow calls. It prints users' queries: keep it private.
+
 ## License
 
 The texts are official documents and not subject to copyright. The code here is released

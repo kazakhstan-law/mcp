@@ -91,3 +91,31 @@ def test_logging_without_a_salt_is_refused(settings):
 
     with pytest.raises(ValueError, match="KZLAW_IP_SALT"):
         Gate(replace(settings, ip_salt=""))
+
+
+@pytest.mark.anyio
+async def test_gate_logs_what_a_search_found(settings):
+    r = req("9.9.9.9")
+    r.headers["user-agent"] = "Claude-User/1.0 (+https://www.anthropic.com)"
+    result = {
+        "acts": [{"hits": [1, 2]}, {"hits": [3]}],
+        "rewritten": {"from": "курение", "to": "потреблени\\w* табачн\\w*"},
+        "truncated": True,
+    }
+    await Gate(settings).call("search", {"query": "курение"}, r, lambda: result)
+    await Gate(settings).call("search", {"query": "x"}, None, lambda: {"acts": [], "tried": ["a"]})
+    await Gate(settings).call("read", {}, None, lambda: {"oddly": "shaped"})
+    rows = [json.loads(line) for line in settings.log_path.read_text().splitlines()]
+    assert rows[0]["client"] == "Claude-User"
+    assert rows[0]["acts"] == 2 and rows[0]["hits"] == 3 and rows[0]["truncated"] is True
+    assert rows[0]["rewritten"] == "потреблени\\w* табачн\\w*"
+    assert rows[1]["client"] == "local" and rows[1]["hits"] == 0 and rows[1]["tried"] == ["a"]
+    assert rows[2]["ok"] is True and "hits" not in rows[2]
+
+
+def test_outcome_never_raises_on_odd_results():
+    from kzlaw_mcp.gate import outcome
+
+    assert outcome("search", None) == {}
+    assert outcome("search", {"acts": None, "rewritten": "x"}) == {"acts": 0, "hits": 0}
+    assert outcome("search", {"acts": ["not a dict"]})["hits"] == 0

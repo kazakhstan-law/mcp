@@ -78,6 +78,39 @@ def client_ip(request: Request | None, trusted: frozenset[str]) -> tuple[str, bo
     return peer, False
 
 
+def client_token(request: Request | None) -> str:
+    """The User-Agent's product name only ("Claude-User", "python-httpx"): the whole string
+    next to the IP hash would single out one person. The report maps names to clients."""
+    if request is None:
+        return "local"
+    ua = request.headers.get("user-agent", "").strip()
+    return ua.split("/", 1)[0].split(" ", 1)[0][:40] or "-"
+
+
+def outcome(tool: str, result: object) -> dict:
+    """What a call found, for the log: a zero-hit search is the one to learn from. Reads with
+    .get only, so an unexpected result shape never fails a call that succeeded."""
+    if not isinstance(result, dict):
+        return {}
+    out: dict = {}
+    if result.get("truncated"):
+        out["truncated"] = True
+    if tool != "search":
+        return out
+    acts = result.get("acts") or []
+    out["acts"] = len(acts)
+    out["hits"] = sum(len(a.get("hits") or []) for a in acts if isinstance(a, dict))
+    if result.get("repealed"):
+        out["repealed"] = len(result["repealed"])
+    if isinstance(rewritten := result.get("rewritten"), dict):
+        out["rewritten"] = str(rewritten.get("to", ""))[:100]
+    if result.get("tried"):
+        out["tried"] = [str(t)[:100] for t in result["tried"][:10]]
+    if result.get("nearest_headings"):
+        out["nearest"] = len(result["nearest_headings"])
+    return out
+
+
 class Gate:
     def __init__(self, settings: Settings, clock: Callable[[], float] = time.monotonic) -> None:
         if settings.log_path is not None and not settings.ip_salt:
@@ -94,7 +127,7 @@ class Gate:
         if self._capacity is None:
             self._capacity = anyio.CapacityLimiter(self.settings.max_parallel)
         ip, via_proxy = client_ip(request, self.settings.trusted_proxies)
-        base = {"ip": ip, "via_proxy": via_proxy, "tool": tool}
+        base = {"ip": ip, "via_proxy": via_proxy, "client": client_token(request), "tool": tool}
         wait = self.limiter.hit(ip)
         if wait is not None:  # logged without args: a limited caller cannot fill the disk
             self.log.record(**base, ok=False, error="rate_limited", ms=0)
@@ -113,7 +146,7 @@ class Gate:
             self.log.record(**base, ok=False, error=type(exc).__name__, ms=_ms(started))
             raise InputError("internal error; try again or rephrase") from exc
         size = len(json.dumps(result, ensure_ascii=False))
-        self.log.record(**base, ok=True, size=size, ms=_ms(started))
+        self.log.record(**base, ok=True, size=size, ms=_ms(started), **outcome(tool, result))
         return result
 
 
