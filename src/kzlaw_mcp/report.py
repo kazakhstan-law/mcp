@@ -156,7 +156,8 @@ def report(rows: list[dict], top: int = 20, show_chains: int = 15) -> str:
     section("Searches")
     out.append(
         f"{len(searches)} searches; {len(known)} logged with a result, {len(misses)} found "
-        f"nothing, {sum(1 for r in known if r.get('rewritten'))} found only after a rewrite"
+        f"nothing, {sum(1 for r in known if r.get('rewritten'))} found only after a rewrite, "
+        f"{sum(1 for r in known if r.get('relaxed'))} only after relaxing a phrase to stems"
     )
 
     section("Found nothing, no dictionary entry (candidates for synonyms.py)")
@@ -167,6 +168,10 @@ def report(rows: list[dict], top: int = 20, show_chains: int = 15) -> str:
     section("Rewritten by the dictionary")
     rewrites = Counter((query_key(_query(r)), r["rewritten"]) for r in known if r.get("rewritten"))
     out.extend(f"{n:4}  {q}  ->  {to}" for (q, to), n in rewrites.most_common(top))
+
+    section("Relaxed: a phrase that found nothing, retried as stems in any order")
+    loose = Counter((_query(r), r["relaxed"]) for r in known if r.get("relaxed"))
+    out.extend(f"{n:4}  {q}  ->  {st}" for (q, st), n in loose.most_common(top))
 
     conversations = chains(rows)
     section(f"Reformulations: a miss, then a hit within {LOOKAHEAD} searches")

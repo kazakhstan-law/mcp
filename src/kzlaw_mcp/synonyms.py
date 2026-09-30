@@ -10,6 +10,7 @@ article on tobacco before the one on smoking.
 from __future__ import annotations
 
 import re
+from itertools import permutations
 
 EVERYDAY: list[tuple[str, list[str]]] = [
     (
@@ -60,3 +61,57 @@ def stems(query: str) -> list[str]:
     """Word stems of a query for a loose heading match: "запрет\\w* куре" -> ["запр", "куре"]."""
     words = _WORD.findall(_ESCAPE.sub(" ", query.lower()))
     return list(dict.fromkeys(w[: min(6, max(4, len(w) - 2))] for w in words))
+
+
+# Words in nearly every paragraph or heading: as a required stem they only slow the search.
+_COMMON = (
+    "стат",
+    "пункт",
+    "подпункт",
+    "кодекс",
+    "закон",
+    "республик",
+    "казахст",
+    "либо",
+    "также",
+    "может",
+    "быть",
+    "если",
+    "после",
+    "более",
+    "менее",
+    "который",
+    "которы",
+    "этом",
+    "того",
+    "иной",
+    "иных",
+    "соответств",
+    "настоящ",
+    "бап",
+    "заң",
+    "республикас",
+)
+MAX_RELAXED = 4
+
+
+def relaxed(query: str) -> list[list[str]]:
+    """Stem sets to retry a phrase that found nothing with: its longest words' stems, in any
+    order, in one paragraph; then one stem fewer. Empty for a query of fewer than two words."""
+    words = [w for w in _WORD.findall(_ESCAPE.sub(" ", query.lower())) if not w.startswith(_COMMON)]
+    picked: list[str] = []
+    for w in sorted(dict.fromkeys(words), key=len, reverse=True):
+        stem = w[: min(6, max(4, len(w) - 2))]
+        same = [i for i, p in enumerate(picked) if p.startswith(stem) or stem.startswith(p)]
+        if same:  # "налоговые" and "налогу": one stem, the shorter, covers both
+            picked[same[0]] = min(picked[same[0]], stem, key=len)
+        elif len(picked) < MAX_RELAXED:
+            picked.append(stem)
+    if len(picked) < 2:
+        return []
+    return [picked] + ([picked[:-1]] if len(picked) >= 3 else [])
+
+
+def any_order(stems: list[str]) -> str:
+    """A regex for all of `stems` in one line, in any order: ripgrep has no lookahead."""
+    return "|".join(".*".join(re.escape(s) for s in p) for p in permutations(stems))

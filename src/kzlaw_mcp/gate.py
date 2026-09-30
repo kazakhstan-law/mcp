@@ -104,6 +104,8 @@ def outcome(tool: str, result: object) -> dict:
         out["repealed"] = len(result["repealed"])
     if isinstance(rewritten := result.get("rewritten"), dict):
         out["rewritten"] = str(rewritten.get("to", ""))[:100]
+    if isinstance(loose := result.get("relaxed"), dict):
+        out["relaxed"] = " ".join(str(x) for x in loose.get("stems") or [])[:100]
     if result.get("tried"):
         out["tried"] = [str(t)[:100] for t in result["tried"][:10]]
     if result.get("nearest_headings"):

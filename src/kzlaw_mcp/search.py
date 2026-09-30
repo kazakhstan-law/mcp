@@ -12,7 +12,7 @@ from kzlaw_mcp.config import ALL_SCOPES, DEFAULT_SCOPES
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, title_of
 from kzlaw_mcp.gitio import CommandError, run
 from kzlaw_mcp.locate import line_context
-from kzlaw_mcp.synonyms import legal_wordings, stems
+from kzlaw_mcp.synonyms import any_order, legal_wordings, relaxed, stems
 
 MAX_QUERY = 200
 MAX_HITS = 20
@@ -31,6 +31,11 @@ REWRITTEN_HINT = (
     "The query as sent found nothing: the law does not use those words. These hits are for "
     "the legal wording in rewritten.to; name it when you answer. rewritten.also: other legal "
     "wordings for the same words, to search when these hits are not it. " + HINT
+)
+RELAXED_HINT = (
+    "The query as sent found nothing. These hits have every stem in relaxed.stems in one "
+    "paragraph, in any order: check that they answer the question before citing. Next time "
+    "search two or three stems, not a phrase or a long regex. " + HINT
 )
 NEAREST_NOTE = (
     "nearest_headings: article headings in this act sharing a word stem with the query; open "
@@ -193,6 +198,12 @@ def search(
             return again | {"rewritten": rewritten, "hint": REWRITTEN_HINT}
     if legal:
         extra["tried"] = legal
+    # A phrase or a long regex that found nothing: its words, in any order, in one paragraph.
+    for found in relaxed(query):
+        again = run(any_order(found))
+        if again["acts"]:
+            loose = {"from": query, "stems": found}
+            return again | extra | {"query": query, "relaxed": loose, "hint": RELAXED_HINT}
     if act_code and (found := stems(query)):
         near = run("|".join(found), True, MAX_HITS)
         hits = [h for a in near["acts"] for h in a["hits"]]

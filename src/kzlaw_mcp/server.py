@@ -43,6 +43,8 @@ recalled from memory: an older edition may word it differently. A stem inside a 
 "\\w*" after it ("банкротств\\w* граждан"). Retry other wording before concluding; if nothing \
 is found, say so and name what you searched. When search answers with `rewritten`, the law \
 uses other words than the user's: say which ("в законе это «потребление табачных изделий»"). \
+When it answers with `relaxed`, your phrase was not the law's: check the hits say what you \
+need before citing, and search stems next time. \
 To find the article on a topic inside one act, search it with headings_only=true. Keep the default scopes: do not narrow search to codes. \
 Forms, rules and procedures are ministerial orders; a form number such as 270 is \
 searched as "форм[аеуы] 270". A question about a form is answered from the order that \
@@ -87,7 +89,10 @@ kazakhstan-law MCP — законы Казахстана с историей и�
 """
 
 SEARCH_DESC = (
-    "Full-text search (regex, case-insensitive) over the acts of Kazakhstan in force. Returns "
+    "Full-text search (regex, case-insensitive) over the acts of Kazakhstan in force. Query: "
+    "two or three word stems ('пен\\w* несвоевременн', 'вычет|подоходн'), not a sentence, "
+    "not a phrase recalled from memory, no '.{0,80}' chains: the wording of the law is not "
+    "yours. Returns "
     "acts with matching lines; each line carries the article anchor (e.g. st592) and/or point "
     "label (e.g. 168-1) to pass to read. Scopes: codes (constitution, codes, laws), government, "
     "ministerial by default (keep them: forms and rules are ministerial orders); "
@@ -98,8 +103,9 @@ SEARCH_DESC = (
     "followed by more words needs '\\w*' ('банкротств\\w* граждан'). Inside one act, lines "
     "that are article headings come first; headings_only: match headings only, to find the "
     "article on a topic. A query that finds nothing is retried with the legal wording for "
-    "everyday words ('курение' -> 'потреблени\\w* табачн\\w*'); rewritten says so. Inside one "
-    "act, nothing found lists nearest_headings."
+    "everyday words ('курение' -> 'потреблени\\w* табачн\\w*'); rewritten says so. Then a "
+    "phrase is retried as its words' stems, in any order, in one paragraph; relaxed says so. "
+    "Inside one act, nothing found lists nearest_headings."
 )
 READ_DESC = (
     "Current text of an act: an article by anchor (st592), a point by label (168-1), or a part "

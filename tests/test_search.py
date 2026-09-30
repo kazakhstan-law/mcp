@@ -165,9 +165,20 @@ def test_headings_only(settings):
     assert [h["anchor"] for h in res["acts"][0]["hits"]] == ["st441"]
 
 
-def test_nothing_found_inside_an_act_names_the_nearest_headings(settings):
+def test_a_phrase_that_finds_nothing_is_retried_as_stems_in_any_order(settings):
     res = search(Corpus(settings), "запретов\\w* нарушени", act_code=KOAP_CODE)
-    assert res["acts"] == []
+    assert res["relaxed"] == {"from": "запретов\\w* нарушени", "stems": ["запрет", "наруше"]}
+    assert res["acts"] and res["query"] == "запретов\\w* нарушени"
+    assert "relaxed.stems" in res["hint"] and "rewritten" not in res
+
+
+def test_one_word_is_never_relaxed(settings):
+    assert "relaxed" not in search(Corpus(settings), "самогоноварение", act_code=KOAP_CODE)
+
+
+def test_nothing_found_inside_an_act_names_the_nearest_headings(settings):
+    res = search(Corpus(settings), "запретов\\w* самогонщик", act_code=KOAP_CODE)
+    assert res["acts"] == [] and "relaxed" not in res
     assert res["nearest_headings"][0]["anchor"] == "st441"
     assert "nearest_headings" in res["hint"]
 
