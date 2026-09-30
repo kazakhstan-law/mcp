@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import KOAP_CODE, PDD_CODE
+from conftest import KOAP_CODE, PD_CODE, PDD_CODE
 from kzlaw_mcp.corpus import Corpus, InputError
 from kzlaw_mcp.history import history
 
@@ -39,6 +39,25 @@ def test_phrase_pinpoints_when_it_appeared(settings):
     res = history(Corpus(settings), PDD_CODE, phrase="электрических самокатов")
     assert [c["date"] for c in res["commits"]] == ["2023-08-31"]
     assert res["introduced"]["cause_act_code"] == "999671"
+
+
+def test_introduced_skips_a_placeholder_heading(settings):
+    res = history(Corpus(settings), PD_CODE, phrase="Статья 10-1. Уведомление")
+    assert [c["date"] for c in res["commits"]] == ["2026-01-09"]  # the heading came first
+    assert res["introduced"]["date"] == "2026-07-12"  # the text came then
+    assert res["introduced"]["placeholder"] is False
+    assert res["introduced"]["announced"]["date"] == "2026-01-09"
+
+
+def test_introduced_marks_a_provision_not_in_force(settings):
+    res = history(Corpus(settings), PD_CODE, phrase="Статья 1-2.")
+    assert res["introduced"]["date"] == "2026-07-12"
+    assert res["introduced"]["placeholder"] is True
+
+
+def test_introduced_of_real_text_has_no_placeholder(settings):
+    res = history(Corpus(settings), PD_CODE, phrase="Оператор уведомляет")
+    assert res["introduced"]["date"] == "2026-07-12" and "placeholder" not in res["introduced"]
 
 
 def test_commit_without_cause(settings):

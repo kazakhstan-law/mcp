@@ -19,6 +19,12 @@ ANCHOR_ID = re.compile(rf"^(?:an{_N}_)*(?:st{_N}(?:_p{_N})?(?:_sp{_N})?|p{_N})$"
 POINT_LABEL = re.compile(rf"^{_N}$")
 POINT_START = re.compile(rf"^\*?({_N})\.\s")
 HEADING = re.compile(r"^(#{1,6})\s+(.*\S)")
+# A provision whose text is not in force yet: the act keeps only its number and the date or
+# condition it takes effect on. In Russian the line starts with it; in Kazakh it ends so.
+PLACEHOLDER = re.compile(
+    r"^(?:#+\s+)?(?:\*\*)?(?:Статья\s+[0-9-]+\.\s+|[0-9-]+-бап\.\s+|[0-9-]+[.)]\s+)?"
+    r"(?:[Вв]водится в действие\s.*|.{0,80}қолданысқа енгізіледі\s*[-–]\s*ҚР\s.*)$"
+)
 
 
 @dataclass(frozen=True)

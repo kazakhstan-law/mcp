@@ -16,7 +16,14 @@ from dataclasses import dataclass
 
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, locator_label, title_of
 from kzlaw_mcp.history import FORMAT, parse_log
-from kzlaw_mcp.locate import ANCHOR_ID, ANCHOR_LINE, HEADING, POINT_START, line_context
+from kzlaw_mcp.locate import (
+    ANCHOR_ID,
+    ANCHOR_LINE,
+    HEADING,
+    PLACEHOLDER,
+    POINT_START,
+    line_context,
+)
 
 ACT_DIR = re.compile(r"^.*?-[0-9]+(?=/)")
 SHA = re.compile(r"^[0-9a-f]{7,40}$")
@@ -30,12 +37,6 @@ MAX_PENDING = 30
 MAX_PENDING_TRACED = 10
 PENDING_NEEDLES = ["вводится в действие", "Вводится в действие", "қолданысқа енгізіледі"]
 EFFECTIVE = re.compile(r"(?:с (\d{2})\.(\d{2})\.(\d{4})|(\d{2})\.(\d{2})\.(\d{4}) бастап)")
-# A provision whose text is not in force yet: the act keeps only its number and the date or
-# condition it takes effect on. In Russian the line starts with it; in Kazakh it ends so.
-PLACEHOLDER = re.compile(
-    r"^(?:#+\s+)?(?:\*\*)?(?:Статья\s+[0-9-]+\.\s+|[0-9-]+-бап\.\s+|[0-9-]+[.)]\s+)?"
-    r"(?:[Вв]водится в действие\s.*|.{0,80}қолданысқа енгізіледі\s*[-–]\s*ҚР\s.*)$"
-)
 NOTE = (
     "items: the articles (or points) this version added, removed or modified, compared with "
     "the previous version; diff lines start with '-' (old) or '+' (new). stage 'announced': "
