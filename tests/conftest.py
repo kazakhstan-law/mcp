@@ -99,6 +99,22 @@ KOAP_2024 = koap_part(
 )
 
 
+# The law never says "курение": a search in everyday words finds nothing without rewriting.
+KOAP_GENERAL = (
+    "## Глава 3. Административная ответственность\n\n"
+    '<a id="st31"></a>\n\n### Статья 31. Ответственность должностных лиц\n\n'
+    "1. Должностное лицо отвечает за нарушение запрета потребления табачных изделий "
+    "подчиненными.\n"
+)
+KOAP_TOBACCO = (
+    "## Глава 25. Административные правонарушения, посягающие на общественный порядок\n\n"
+    '<a id="st441"></a>\n\n### Статья 441. Нарушение запрета потребления табачных изделий '
+    "в местах, в которых он установлен\n\n"
+    "1. Потребление табачных изделий в местах, в которых установлен запрет, –\n\n"
+    "влечет штраф в размере пяти месячных расчетных показателей.\n"
+)
+
+
 def pd_text(stage: int) -> str:
     """The personal data law: 0 as enacted, 1 with a deferred subpoint, 2 once it took effect."""
     sub3 = {
@@ -229,6 +245,8 @@ def corpus_root(tmp_path_factory) -> Path:
             f"{KOAP}/meta.yaml": koap_meta,
             f"{KOAP}/rus.md": "# Об административных правонарушениях\n\n| [Глава 30](rus/sec002-ch010.md) |\n",
             f"{KOAP}/rus/sec002-ch010.md": KOAP_2022,
+            f"{KOAP}/rus/sec001.md": KOAP_GENERAL,
+            f"{KOAP}/rus/sec002-ch025.md": KOAP_TOBACCO,
             f"{KOAP}/kaz.md": "# ӘКІМШІЛІК ҚҰҚЫҚБҰЗУШЫЛЫҚ ТУРАЛЫ\n\nЖылдамдықты асыру.\n",
         },
         "№100-VII О внесении изменений в Кодекс",

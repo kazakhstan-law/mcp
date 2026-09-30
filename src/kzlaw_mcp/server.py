@@ -41,7 +41,9 @@ enough. A pending provision is cited by its `url`.
 search separate concepts apart or with "|". Search one or two distinctive words, not a phrase \
 recalled from memory: an older edition may word it differently. A stem inside a phrase needs \
 "\\w*" after it ("банкротств\\w* граждан"). Retry other wording before concluding; if nothing \
-is found, say so and name what you searched. Keep the default scopes: do not narrow search to codes. \
+is found, say so and name what you searched. When search answers with `rewritten`, the law \
+uses other words than the user's: say which ("в законе это «потребление табачных изделий»"). \
+To find the article on a topic inside one act, search it with headings_only=true. Keep the default scopes: do not narrow search to codes. \
 Forms, rules and procedures are ministerial orders; a form number such as 270 is \
 searched as "форм[аеуы] 270". A question about a form is answered from the order that \
 approves it ("Об утверждении формы …"): read that order and run history on it.
@@ -90,7 +92,11 @@ SEARCH_DESC = (
     "every matching line; for a repealed act, in its last version. include_repealed: also "
     "the repealed acts whose title matches (for the law before the acts now in force). Each "
     "line is one paragraph, so 'A.*B' never spans two; a stem "
-    "followed by more words needs '\\w*' ('банкротств\\w* граждан')."
+    "followed by more words needs '\\w*' ('банкротств\\w* граждан'). Inside one act, lines "
+    "that are article headings come first; headings_only: match headings only, to find the "
+    "article on a topic. A query that finds nothing is retried with the legal wording for "
+    "everyday words ('курение' -> 'потреблени\\w* табачн\\w*'); rewritten says so. Inside one "
+    "act, nothing found lists nearest_headings."
 )
 READ_DESC = (
     "Current text of an act: an article by anchor (st592), a point by label (168-1), or a part "
@@ -149,6 +155,7 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
         limit: int = 20,
         act_code: str | None = None,
         include_repealed: bool = False,
+        headings_only: bool = False,
     ) -> dict[str, Any]:
         args = {
             "query": query,
@@ -157,11 +164,14 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             "limit": limit,
             "act_code": act_code,
             "include_repealed": include_repealed,
+            "headings_only": headings_only,
         }
         return await call(
             "search",
             args,
-            lambda: search_tool(corpus, query, lang, scopes, limit, act_code, include_repealed),
+            lambda: search_tool(
+                corpus, query, lang, scopes, limit, act_code, include_repealed, headings_only
+            ),
         )
 
     @mcp.tool(description=READ_DESC)

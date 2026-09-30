@@ -128,12 +128,13 @@ def test_search_inside_one_act(settings):
     res = search(Corpus(settings), "Статья", act_code=PD_CODE)
     assert [a["act_code"] for a in res["acts"]] == [PD_CODE]
     # every matching line, not the three a file gets in a corpus-wide search
+    # headings first: an article named for the query outranks a line that mentions it
     assert [h["anchor"] for h in res["acts"][0]["hits"]] == [
-        "st1",
         "st1",
         "st1-2",
         "st10-1",
         "st9",
+        "st1",
     ]  # st1 twice: its footnote
     assert res["truncated"] is False
     assert search(Corpus(settings), "Статья", act_code=PD_CODE, limit=2)["truncated"] is True
@@ -142,3 +143,35 @@ def test_search_inside_one_act(settings):
 def test_search_inside_unknown_act(settings):
     with pytest.raises(InputError):
         search(Corpus(settings), "Статья", act_code="424242")
+
+
+def test_everyday_word_is_rewritten_to_the_legal_one(settings):
+    res = search(Corpus(settings), "курение", act_code=KOAP_CODE)
+    assert res["rewritten"]["from"] == "курение"
+    assert "потреблени" in res["rewritten"]["to"]
+    assert res["rewritten"]["also"]  # the broader wordings, to try when these hits are not it
+    # the article named for it comes first, before a line elsewhere that mentions it
+    assert res["acts"][0]["hits"][0]["anchor"] == "st441"
+    assert [h["anchor"] for h in res["acts"][0]["hits"]][:2] == ["st441", "st31"]
+
+
+def test_a_query_that_finds_something_is_never_rewritten(settings):
+    res = search(Corpus(settings), "табачн", act_code=KOAP_CODE)
+    assert "rewritten" not in res and res["acts"]
+
+
+def test_headings_only(settings):
+    res = search(Corpus(settings), "табачн", act_code=KOAP_CODE, headings_only=True)
+    assert [h["anchor"] for h in res["acts"][0]["hits"]] == ["st441"]
+
+
+def test_nothing_found_inside_an_act_names_the_nearest_headings(settings):
+    res = search(Corpus(settings), "запретов\\w* нарушени", act_code=KOAP_CODE)
+    assert res["acts"] == []
+    assert res["nearest_headings"][0]["anchor"] == "st441"
+    assert "nearest_headings" in res["hint"]
+
+
+def test_yo_matches_ye(settings):
+    query = "в которых он установлён"
+    assert search(Corpus(settings), query, act_code=KOAP_CODE)["acts"]

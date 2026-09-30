@@ -31,8 +31,13 @@ def test_files_follow_the_revision(settings):
     ref = c.find(KOAP_CODE)
     g = c.git("codes")
     old = g.rev_before("2023-01-01")
-    assert c.lang_files(ref, old, "rus") == [f"{KOAP}/rus.md", f"{KOAP}/rus/sec002-ch010.md"]
-    assert c.lang_files(ref, c.head("codes"), "rus")[1].endswith("sec002-ch030.md")
+    assert c.lang_files(ref, old, "rus") == [
+        f"{KOAP}/rus.md",
+        f"{KOAP}/rus/sec001.md",
+        f"{KOAP}/rus/sec002-ch010.md",
+        f"{KOAP}/rus/sec002-ch025.md",
+    ]
+    assert c.lang_files(ref, c.head("codes"), "rus")[-1].endswith("sec002-ch030.md")
     assert c.lang_files(ref, c.head("codes"), "kaz") == [f"{KOAP}/kaz.md"]
     assert c.meta(ref, old)["requisite"].startswith("Кодекс")
 

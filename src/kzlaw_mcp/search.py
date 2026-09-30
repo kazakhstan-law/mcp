@@ -12,6 +12,7 @@ from kzlaw_mcp.config import ALL_SCOPES, DEFAULT_SCOPES
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, title_of
 from kzlaw_mcp.gitio import CommandError, run
 from kzlaw_mcp.locate import line_context
+from kzlaw_mcp.synonyms import legal_wordings, stems
 
 MAX_QUERY = 200
 MAX_HITS = 20
@@ -26,6 +27,16 @@ NO_HITS = (
     "ending: 'банкротств\\w* граждан', not 'банкротств граждан'."
 )
 HINT = "Open a passage with read(act_code, anchor=...) or read(act_code, point=...)."
+REWRITTEN_HINT = (
+    "The query as sent found nothing: the law does not use those words. These hits are for "
+    "the legal wording in rewritten.to; name it when you answer. rewritten.also: other legal "
+    "wordings for the same words, to search when these hits are not it. " + HINT
+)
+NEAREST_NOTE = (
+    "nearest_headings: article headings in this act sharing a word stem with the query; open "
+    "one with read(act_code, anchor=...), or read(act_code) for the whole outline."
+)
+MAX_NEAREST = 10
 MAX_REPEALED = 20
 REPEALED_HINT = (
     "This act is repealed: the hits are from its last version, as_of. Open a passage with "
@@ -55,7 +66,7 @@ def _search_repealed_act(
     meta = corpus.meta(ref, sha)
     texts: dict[str, list[str]] = {}
     hits = []
-    for rel, lineno, text in found[:limit]:
+    for rel, lineno, text in sorted(found, key=_heading_first)[:limit]:
         if rel not in texts:
             texts[rel] = g.blob(sha, rel).split("\n")
         ctx = line_context(texts[rel], lineno)
@@ -134,6 +145,16 @@ def _repealed_titles(corpus: Corpus, query: str, lang: str, scopes: list[str]) -
     }
 
 
+def _heading_first(hit: tuple[str, int, str]) -> tuple[bool, str, int]:
+    """Inside one act an article whose heading matches outranks every line that mentions it."""
+    rel, lineno, text = hit
+    return (not text.lstrip().startswith("#"), rel, lineno)
+
+
+def _headings_only(query: str) -> str:
+    return rf"^#{{1,6}}\s.*(?:{query})"
+
+
 def _act_dir(rel: str, lang: str) -> str:
     parent, name = rel.rsplit("/", 1)
     if name == f"{lang}.md":
@@ -149,11 +170,53 @@ def search(
     limit: int = MAX_HITS,
     act_code: str | None = None,
     include_repealed: bool = False,
+    headings_only: bool = False,
 ) -> dict:
-    query = (query or "").strip()
+    # The corpus writes "учет", not "учёт": ripgrep's case folding does not join the two.
+    query = (query or "").strip().replace("ё", "е").replace("Ё", "Е")
     if not 2 <= len(query) <= MAX_QUERY:
         raise InputError(f"query must be 2..{MAX_QUERY} characters")
     lang = check_lang(lang)
+
+    def run(q: str, only_headings: bool = headings_only, n: int = limit) -> dict:
+        return _search(corpus, q, lang, scopes, n, act_code, include_repealed, only_headings)
+
+    res = run(query)
+    if res["acts"]:
+        return res
+    extra: dict = {}
+    legal = legal_wordings(query) if lang == "rus" else []
+    for n, wording in enumerate(legal):
+        again = run(wording)
+        if again["acts"]:
+            rewritten = {"from": query, "to": wording, "also": legal[n + 1 :]}
+            return again | {"rewritten": rewritten, "hint": REWRITTEN_HINT}
+    if legal:
+        extra["tried"] = legal
+    if act_code and (found := stems(query)):
+        near = run("|".join(found), True, MAX_HITS)
+        hits = [h for a in near["acts"] for h in a["hits"]]
+        hits.sort(key=lambda h: -sum(s in h["text"].lower() for s in found))
+        if hits:
+            extra["nearest_headings"] = [
+                {"anchor": h["anchor"], "point": h["point"], "heading": h["text"]}
+                for h in hits[:MAX_NEAREST]
+            ]
+            extra["hint"] = f"{res['hint']} {NEAREST_NOTE}"
+    return res | extra
+
+
+def _search(
+    corpus: Corpus,
+    query: str,
+    lang: str,
+    scopes: list[str] | None,
+    limit: int,
+    act_code: str | None,
+    include_repealed: bool,
+    headings_only: bool,
+) -> dict:
+    pattern = _headings_only(query) if headings_only else query
     act = None
     if act_code:
         try:
@@ -163,7 +226,8 @@ def search(
             repeal = corpus.repeal(gone)
             assert repeal is not None
             limit = max(1, min(int(limit), MAX_HITS))
-            return _search_repealed_act(corpus, gone, query, lang, limit, repeal)
+            res = _search_repealed_act(corpus, gone, pattern, lang, limit, repeal)
+            return res | {"query": query}
     if act:
         scopes = [act.scope]
     wanted = list(dict.fromkeys(scopes)) if scopes else list(DEFAULT_SCOPES)
@@ -193,7 +257,7 @@ def search(
         "--glob",
         f"**/{lang}/*.md",
         "-e",
-        query,
+        pattern,
         "--",
         *([f"{act.scope}/{act.path}"] if act else wanted),
     ]
@@ -243,7 +307,8 @@ def search(
             break
         meta = yaml.safe_load((root / scope / act_dir / "meta.yaml").read_text("utf-8")) or {}
         items = []
-        for rel, lineno, text in sorted(hits)[: min(per_act, limit - used)]:
+        picked = sorted(hits, key=_heading_first) if act else sorted(hits)
+        for rel, lineno, text in picked[: min(per_act, limit - used)]:
             if rel not in file_lines:
                 file_lines[rel] = (root / scope / rel).read_text("utf-8").split("\n")
             ctx = line_context(file_lines[rel], lineno)
