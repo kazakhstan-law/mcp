@@ -29,7 +29,9 @@ CLIENTS = [  # product token -> client; the log keeps the token so these can cha
     (re.compile(r"cursor", re.IGNORECASE), "cursor"),
     (re.compile(r"^local$"), "local"),
 ]
-_REGEX_NOISE = re.compile(r"\\[wWsSdDbB][*+?]?|[.][*+?]|[()\[\]^$|?*+{}]|\\")
+_REGEX_NOISE = re.compile(
+    r"\.?\{\d*,?\d*\}|\[[^\]]*\][*+?]?|\\[wWsSdDbB][*+?]?|[.][*+?]|[()\[\]^$|?*+{}]|\\"
+)
 
 
 def load(path: Path) -> list[dict]:

@@ -56,6 +56,8 @@ def test_chains_split_at_the_gap_and_pair_reformulations(tmp_path):
 def test_query_key_and_clients():
     assert query_key("Курени\\w*|вейп.*") == query_key("курени вейп")
     assert query_key("учёт") == "учет"
+    assert query_key("стандартн.{0,20}вычет") == "стандартн вычет"
+    assert query_key("пен[ьия].*несвоевременн") == "пен несвоевременн"
     assert (
         client_of("Claude-User") == "claude" and client_of("python-httpx") == "other:python-httpx"
     )
