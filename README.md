@@ -3,7 +3,7 @@
 A public [MCP](https://modelcontextprotocol.io) server over the
 [kazakhstan-law](https://github.com/kazakhstan-law) corpus: the acts of Kazakhstan as git
 repositories, one commit per version. Your chatbot can search the law, read an article,
-see the text in force on a past date, and find when a rule appeared. Every answer links to
+see the text in force on a past date, find when a rule appeared, and see what an amendment changed. Every answer links to
 the exact version it quotes.
 
 **Endpoint:** `https://cyphy.kz/kazakhstan-law/mcp` (Streamable HTTP, no authentication).
@@ -28,10 +28,11 @@ the exact version it quotes.
 
 | Tool | What it does |
 |---|---|
-| `search` | Case-insensitive regex search over acts in force; hits carry article anchors / point labels |
-| `read` | Current text of an article (`st592`), a point (`168-1`) or a part of an article |
+| `search` | Case-insensitive regex search over acts in force, or inside one act (`act_code`); hits carry article anchors / point labels |
+| `read` | Current text of an article (`st592`), a point (`168-1`) or a part of an article; without either, the outline and the provisions not in force yet |
 | `at_date` | The same text as in force on a past date |
 | `history` | The act's versions and amending acts; with a phrase, when that wording appeared |
+| `changes` | What one version changed, article by article, with diffs; for an amending act, the acts it changed |
 
 ## Run it yourself
 

@@ -37,11 +37,15 @@ def search(
     lang: str = "rus",
     scopes: list[str] | None = None,
     limit: int = MAX_HITS,
+    act_code: str | None = None,
 ) -> dict:
     query = (query or "").strip()
     if not 2 <= len(query) <= MAX_QUERY:
         raise InputError(f"query must be 2..{MAX_QUERY} characters")
     lang = check_lang(lang)
+    act = corpus.find(act_code) if act_code else None
+    if act:
+        scopes = [act.scope]
     wanted = list(dict.fromkeys(scopes)) if scopes else list(DEFAULT_SCOPES)
     unknown = [s for s in wanted if s not in ALL_SCOPES]
     if unknown:
@@ -52,13 +56,16 @@ def search(
     if not wanted:
         raise InputError("none of the requested scopes is available on this server")
     limit = max(1, min(int(limit), MAX_HITS))
+    # Inside one act every hit is its own: the per-file and per-act caps only spread hits
+    # across acts. One hit over the limit tells truncation apart from an exact fit.
+    per_file, per_act = (limit + 1, limit) if act else (PER_FILE, PER_ACT)
     root: Path = corpus.settings.corpus_root
     args = [
         "rg",
         "--json",
         "--ignore-case",
         "--max-count",
-        str(PER_FILE),
+        str(per_file),
         "--max-columns",
         "2000",
         "--glob",
@@ -68,7 +75,7 @@ def search(
         "-e",
         query,
         "--",
-        *wanted,
+        *([f"{act.scope}/{act.path}"] if act else wanted),
     ]
     try:
         out = run(
@@ -116,7 +123,7 @@ def search(
             break
         meta = yaml.safe_load((root / scope / act_dir / "meta.yaml").read_text("utf-8")) or {}
         items = []
-        for rel, lineno, text in sorted(hits)[: min(PER_ACT, limit - used)]:
+        for rel, lineno, text in sorted(hits)[: min(per_act, limit - used)]:
             if rel not in file_lines:
                 file_lines[rel] = (root / scope / rel).read_text("utf-8").split("\n")
             ctx = line_context(file_lines[rel], lineno)
@@ -153,6 +160,7 @@ def search(
         "query": query,
         "lang": lang,
         "scopes": wanted,
+        **({"act_code": act.code} if act else {}),
         "missing_scopes": missing,
         "sha": heads,
         "truncated": out.truncated

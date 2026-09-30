@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, title_of
 
 FORMAT = (
@@ -11,16 +13,47 @@ FORMAT = (
 )
 MAX_LIMIT = 50
 MAX_DEPTH = 3
+MONTHS = {
+    m: i + 1
+    for i, m in enumerate(
+        [
+            "января",
+            "февраля",
+            "марта",
+            "апреля",
+            "мая",
+            "июня",
+            "июля",
+            "августа",
+            "сентября",
+            "октября",
+            "ноября",
+            "декабря",
+        ]
+    )
+}
+REQUISITE_DATE = re.compile(r"от (\d{1,2}) (\w+) (\d{4}) года")
 NOTE = (
-    "Each commit is one version of this act, dated to its version date; the subject and "
-    "cause_act_* name the amending act. With phrase: only versions that added or removed that "
+    "Each commit is one version of this act, dated to the day it took effect; the subject and "
+    "cause_act_* name the amending act, cause_act_date is the day that act was adopted. One "
+    "amending act often has several versions: parts take effect on different dates, and a "
+    "version on the adoption date may only insert placeholders ('вводится в действие …') for "
+    "text that comes later. changes(act_code, sha) shows what a version changed. With phrase: only versions that added or removed that "
     "exact, case-sensitive text; the oldest is when it entered the law. predecessors are the "
     "repealed acts this one replaced (e.g. an earlier code), newest first, with their own "
     "versions: the history continues there, and at_date reads their text on dates before."
 )
 
 
-def _parse(out: str, corpus: Corpus, scope: str) -> list[dict]:
+def requisite_date(requisite: str) -> str | None:
+    """The adoption date in a requisite: "Закон РК от 9 января 2026 года № 256-VIII" -> 2026-01-09."""
+    m = REQUISITE_DATE.search(requisite)
+    if not m or m.group(2) not in MONTHS:
+        return None
+    return f"{m.group(3)}-{MONTHS[m.group(2)]:02d}-{int(m.group(1)):02d}"
+
+
+def parse_log(out: str, corpus: Corpus, scope: str) -> list[dict]:
     commits = []
     for record in out.split("\x1e"):
         record = record.strip("\n")
@@ -34,6 +67,7 @@ def _parse(out: str, corpus: Corpus, scope: str) -> list[dict]:
                 "subject": subject,
                 "cause_act_code": code.strip(),
                 "cause_act_requisite": requisite.strip(),
+                "cause_act_date": requisite_date(requisite),
                 "url": corpus.commit_url(scope, sha),
             }
         )
@@ -46,8 +80,8 @@ def _versions(corpus: Corpus, ref: ActRef, phrase: str | None, limit: int) -> di
     args = ["-n", str(limit), f"--format={FORMAT}"]
     if phrase:
         args.append(f"-S{phrase}")
-    commits = _parse(g.log(*args, head, "--", ref.path), corpus, ref.scope)
-    created = _parse(
+    commits = parse_log(g.log(*args, head, "--", ref.path), corpus, ref.scope)
+    created = parse_log(
         g.log("--diff-filter=A", f"--format={FORMAT}", head, "--", f"{ref.path}/meta.yaml"),
         corpus,
         ref.scope,

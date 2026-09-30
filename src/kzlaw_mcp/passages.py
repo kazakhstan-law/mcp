@@ -9,8 +9,17 @@ from __future__ import annotations
 
 import datetime as dt
 
+from kzlaw_mcp.changes import pending
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, locator_label, title_of
-from kzlaw_mcp.locate import ANCHOR_ID, POINT_LABEL, Span, article_span, headings, point_spans
+from kzlaw_mcp.locate import (
+    ANCHOR_ID,
+    ANCHOR_LINE,
+    POINT_LABEL,
+    Span,
+    article_span,
+    headings,
+    point_spans,
+)
 
 MAX_TEXT = 12_000
 MAX_PASSAGES = 3
@@ -19,6 +28,17 @@ OVERVIEW_CHARS = 4_000
 
 def _clip(text: str, limit: int) -> tuple[str, bool]:
     return (text, False) if len(text) <= limit else (text[:limit] + "\n[…]", True)
+
+
+def _overview(text: str) -> str:
+    """The act's head: up to its first article, or whole paragraphs up to the limit."""
+    lines = text.split("\n")
+    first = next((i for i, ln in enumerate(lines) if ANCHOR_LINE.match(ln)), len(lines))
+    head = "\n".join(lines[:first]).rstrip()
+    if len(head) <= OVERVIEW_CHARS:
+        return head
+    cut = head.rfind("\n\n", 0, OVERVIEW_CHARS)
+    return head[: cut if cut > 0 else OVERVIEW_CHARS] + "\n[…]"
 
 
 def _check_locators(anchor: str | None, point: str | None) -> tuple[str | None, str | None]:
@@ -58,13 +78,20 @@ def _passages(
     }
     if not anchor and not point:
         main = g.blob(sha, files[0])
-        overview, _ = _clip(main, OVERVIEW_CHARS)
-        return result | {
-            "overview": overview,
-            "outline": headings(main)[:80],
-            "parts": files[1:101],
-            "hint": "Pass anchor or point (from search hits) to read a passage.",
-        }
+        return (
+            result
+            | {
+                "overview": _overview(main),
+                "outline": headings(main)[:80],
+                "parts": files[1:101],
+            }
+            | pending(corpus, ref, sha, files)
+            | {
+                "hint": "Pass anchor or point (from search hits) to read a passage. pending: "
+                "provisions enacted but not in force yet (only a placeholder, the text comes "
+                "on `effective` or per the placeholder); history and changes show the rest."
+            }
+        )
 
     found: list[tuple[str, Span]] = []
     if anchor:

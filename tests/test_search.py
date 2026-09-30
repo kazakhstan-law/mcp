@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import CONST_CODE, KOAP_CODE, PDD_CODE, commit, init, meta
+from conftest import CONST_CODE, KOAP_CODE, PD_CODE, PDD_CODE, commit, init, meta
 from kzlaw_mcp.corpus import Corpus, InputError
 from kzlaw_mcp.search import search
 
@@ -121,4 +121,24 @@ def test_title_match_ranks_first(tmp_path, settings):
 def test_scopes_take_turns(settings):
     # codes has two matching acts, ministerial one: ministerial must not wait for all of codes
     res = search(Corpus(settings), "Статья|самокат")
-    assert [a["act_code"] for a in res["acts"]] == [KOAP_CODE, PDD_CODE, CONST_CODE]
+    assert [a["act_code"] for a in res["acts"]] == [KOAP_CODE, PDD_CODE, PD_CODE, CONST_CODE]
+
+
+def test_search_inside_one_act(settings):
+    res = search(Corpus(settings), "Статья", act_code=PD_CODE)
+    assert [a["act_code"] for a in res["acts"]] == [PD_CODE]
+    # every matching line, not the three a file gets in a corpus-wide search
+    assert [h["anchor"] for h in res["acts"][0]["hits"]] == [
+        "st1",
+        "st1",
+        "st1-2",
+        "st10-1",
+        "st9",
+    ]  # st1 twice: its footnote
+    assert res["truncated"] is False
+    assert search(Corpus(settings), "Статья", act_code=PD_CODE, limit=2)["truncated"] is True
+
+
+def test_search_inside_unknown_act(settings):
+    with pytest.raises(InputError):
+        search(Corpus(settings), "Статья", act_code="424242")

@@ -20,6 +20,9 @@ OLD_WATER = "02-codes/2003/0709-vodnyi-kodeks-respubliki-kazakhstan-3880"
 OLD_WATER_CODE = "3880"
 WATER = "02-codes/2025/0409-vodnyi-kodeks-respubliki-kazakhstan-209026"
 WATER_CODE = "209026"
+PD = "03-laws/2013/0521-o-personalnykh-dannykh-i-ikh-zashchite-72730"
+PD_CODE = "72730"
+PD_AMENDER = "221115"
 
 
 def meta(code: str, title: str, requisite: str) -> str:
@@ -92,6 +95,39 @@ KOAP_2024 = koap_part(
     "влекут штраф в размере сорока месячных расчетных показателей.\n\n"
     "> *Сноска. Статья 592 дополнена частью 3-1 Законом РК от 03.10.2024 № 131-VIII.*\n"
 )
+
+
+def pd_text(stage: int) -> str:
+    """The personal data law: 0 as enacted, 1 with a deferred subpoint, 2 once it took effect."""
+    sub3 = {
+        0: "",
+        1: "3) вводится в действие по истечении шести месяцев после дня его первого "
+        "официального опубликования в соответствии с Законом РК от 09.01.2026 № 256-VIII.\n\n",
+        2: "3) обработки данных для ведения реестра;\n\n",
+    }[stage]
+    note = (
+        "\n> *Сноска. Статья 1 с изменением, внесенным Законом РК от 09.01.2026 № 256-VIII.*\n"
+        if stage
+        else ""
+    )
+    later = (
+        '\n<a id="st1-2"></a>\n\n### Статья 1-2. Вводится в действие с 01.01.2027 в '
+        "соответствии с Законом РК от 30.12.2025 № 248-VIII.\n"
+        '\n<a id="st10-1"></a>\n\n### Статья 10-1. Уведомление об обработке\n\n'
+        "1. Оператор уведомляет уполномоченный орган.\n"
+        if stage == 2
+        else ""
+    )
+    return (
+        "# О персональных данных и их защите\n\n"
+        "Настоящий Закон регулирует общественные отношения в сфере персональных данных.\n\n"
+        "## Глава 1. ОБЩИЕ ПОЛОЖЕНИЯ\n\n"
+        '<a id="st1"></a>\n\n### Статья 1. Основные понятия\n\n'
+        "1) персональные данные – сведения о субъекте;\n" + note + later + "\n"
+        '<a id="st9"></a>\n\n### Статья 9. Сбор без согласия\n\n'
+        "1) осуществления деятельности правоохранительных органов;\n\n"
+        "2) статистических целей;\n\n" + sub3 + "4) в иных случаях, установленных законами.\n"
+    )
 
 
 def pdd_text(with_scooters: bool) -> str:
@@ -206,6 +242,20 @@ def corpus_root(tmp_path_factory) -> Path:
         "№178-VIII Водный кодекс Республики Казахстан",
         {"Cause-Act-Code": WATER_CODE, "Acts-Changed": "2"},
     )
+
+    pd_meta = meta(
+        PD_CODE, "О персональных данных и их защите", "Закон РК от 21 мая 2013 года № 94-V"
+    )
+    commit(codes, "2025-05-01", {f"{PD}/meta.yaml": pd_meta, f"{PD}/rus.md": pd_text(0)}, "№94-V")
+    pd_cause = {
+        "Cause-Act-Code": PD_AMENDER,
+        "Cause-Act-Requisite": "Закон Республики Казахстан от 9 января 2026 года № 256-VIII ЗРК",
+        "Cause-Act-Title": "О внесении изменений и дополнений по вопросам цифровизации",
+        "Cause-Act-Link": f"https://zan.gov.kz/client/#!/doc/{PD_AMENDER}/rus",
+        "Acts-Changed": "1",
+    }
+    commit(codes, "2026-01-09", {f"{PD}/rus.md": pd_text(1)}, "№256-VIII О внесении", pd_cause)
+    commit(codes, "2026-07-12", {f"{PD}/rus.md": pd_text(2)}, "№256-VIII О внесении", pd_cause)
 
     ministerial = init(root / "ministerial")
     pdd_meta = meta(

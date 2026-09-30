@@ -39,7 +39,7 @@ async def test_tools_over_streamable_http(server_url):
         init = await session.initialize()
         assert "citation" in init.instructions
         names = {t.name for t in (await session.list_tools()).tools}
-        assert names == {"search", "read", "at_date", "history"}
+        assert names == {"search", "read", "at_date", "history", "changes"}
         res = await session.call_tool("search", {"query": "превышение установленной скорости"})
         assert not res.isError
         assert res.structuredContent["acts"][0]["act_code"] == KOAP_CODE

@@ -108,7 +108,9 @@ class Corpus:
                 f"{pred.successor} for the law now; at_date or history on {code} for its past text"
             )
         raise InputError(
-            f"act {code} is not in the corpus (only acts in force are indexed); use search"
+            f"act {code} is not in the corpus (only acts in force are indexed). An amending act "
+            f"('О внесении изменений…') is kept only as the versions it made: changes(act_code="
+            f"'{code}') lists the acts it changed. Otherwise use search"
         )
 
     def find_any(self, act_code: str) -> ActRef:

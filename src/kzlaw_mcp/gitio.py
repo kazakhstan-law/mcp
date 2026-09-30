@@ -57,6 +57,18 @@ class Git:
             self._git("rev-list", "-1", f"--before={date}T23:59:59Z", "HEAD").text.strip() or None
         )
 
+    def rev_parse(self, rev: str) -> str | None:
+        """The full sha of commit `rev`, or None when there is none."""
+        out = self._git(
+            "rev-parse", "--verify", "--quiet", "--end-of-options", f"{rev}^{{commit}}", ok=(0, 1)
+        )
+        return out.text.strip() or None
+
+    def diff_names(self, a: str, b: str, *paths: str) -> list[str]:
+        """Paths under `paths` that differ between commits `a` and `b` (a rename is two paths)."""
+        out = self._git("diff", "--name-only", "--no-renames", a, b, "--", *paths)
+        return [line for line in out.text.splitlines() if line]
+
     def commit_date(self, sha: str) -> str:
         return self._git("log", "-1", "--format=%cs", sha).text.strip()
 
@@ -80,6 +92,20 @@ class Git:
         for line in out.text.splitlines():
             _, path, lineno, _ = line.split(":", 3)  # "<sha>:<path>:<line>:<text>"
             hits.append((path, int(lineno)))
+        return hits
+
+    def grep_lines(
+        self, sha: str, needles: list[str], paths: list[str]
+    ) -> list[tuple[str, int, str]]:
+        """(path, line, text) of every line in `paths` at `sha` that contains one of `needles`."""
+        pats = [a for n in needles for a in ("-e", n)]
+        out = self._git(
+            "grep", "-n", "-F", *pats, sha, "--", *paths, ok=(0, 1), max_bytes=4_000_000
+        )
+        hits = []
+        for line in out.text.splitlines():
+            _, path, lineno, text = line.split(":", 3)
+            hits.append((path, int(lineno), text))
         return hits
 
     def log(self, *args: str) -> str:
