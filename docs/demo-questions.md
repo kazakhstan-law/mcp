@@ -24,3 +24,29 @@ the 25 clones; "MCP" = only the four tools of https://cyphy.kz/kazakhstan-law/mc
 More candidates (not yet run): forum.zakon.kz 113425 (since when the ТОО form exists),
 326640 (transport tax arrears), 333438 (foreign property), 189054 (dog-walking signs,
 a local decision).
+
+# Rehearsal 2026-09-30: both paths, same 13 questions
+
+Opus 5.5, headless, on air. MCP now has all five tools (`changes` added to `ask-mcp.sh` and the
+bot). Clones = the server's corpus (HEADs equal), `~/demo/kazakhstan-law`. Streams in
+`~/demo/runs/{git,mcp}-<id>.jsonl`.
+
+| id | Question | Clones | MCP |
+|---|---|---|---|
+| a1 | Top-5 amending laws, 5 years | 56 s, 5 calls: 223-VII 156, 256-VIII 124, 71-VIII 110, 129-VII 73, 306-VIII 69 (unique acts) | 149 s, 27 calls: same top 3 as ranges (100–165, 120–130, 115–120); `changes` shows only 100 acts; #5 differs (141-VII ≈58) |
+| a2 | Ministries that changed orders most, 2025 | 43 s: Minfin 259 orders, Health 242, Transport 148 … (distinct orders, not amending acts as on 27.09) | 22 s: declined, no corpus-wide counting |
+| a3 | КоАП articles changed most since 2020 | 98 s: 804 (37), 684 (24), 729 (15), 62 (13) — matches 27.09 | 83 s: partial, 9 versions of 2026 only; `history` stops at 50 entries, 331-VIII too big for `changes` |
+| a4 | Written labour contract since when | 42 s: 01.01.2000, Law № 493, art. 12 (repealed, from history) | 32 s: "since 2007" — the 1999 law is invisible |
+| e1 | 14 МРП deduction still? | 90 s: no for 2026 (30 МРП), yes for 2025 | 71 s: same |
+| e2 | 50% fine discount same day | 46 s: yes, art. 811 | 32 s: same |
+| e3 | ТОО car, whose fine | 49 s: art. 31 | 48 s: same |
+| c1 | Since when ТОО form exists | 60 s: ГК 27.12.1994 + Указ № 2255 of 02.05.1995 (found via `git log -S`) | 36 s: ГК 1994 + Law 220-I 1998; misses the 1995 Указ |
+| c2 | Transport tax arrears notice | 87 s | 59 s: same substance |
+| c3 | Property tax on foreign real estate | 46 s: no, art. 599 | 45 s: same |
+| c4 | Dog-walking ban signs | 95 s: + 20 maslikhat rules in local-* repos | 36 s: law + ministerial rules, no local decisions |
+| n1 | What the last КоАП version changed | 54 s | 39 s, 3 calls: same, with before/after links |
+| n2 | What 223-VII changed in КоАП | 150 s: 156 acts, not КоАП | 71 s: not КоАП (it changed АППК); list cut at ~100 |
+
+Everyday questions: parity, MCP a bit faster. `changes` moved a1 and n1–n2 into MCP's reach.
+Still clones-only: corpus-wide counts (a2, a3), repealed acts (a4), local decisions without
+naming the region (c4). Gaps filed as backlog mcp-1…mcp-5.

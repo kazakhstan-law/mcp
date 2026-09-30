@@ -16,7 +16,7 @@ claude    # accept the trust dialog once, or the allow list in settings.json is 
 
 `settings.json` excludes the presenter's own `~/CLAUDE.md` and `~/.claude/CLAUDE.md`
 (absolute paths: edit them for another machine) so no personal instructions reach the demo.
-`ask.sh` (clones) and `ask-mcp.sh` (the public endpoint, the bot's four tools) are the
+`ask.sh` (clones) and `ask-mcp.sh` (the public endpoint, the bot's five tools) are the
 headless rehearsal runners; they save each stream to `~/demo/runs/<id>.jsonl`.
 
 Rehearsal results are in `docs/demo-questions.md`.

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# ask-mcp.sh <id> <question> — the bot's path: only the four MCP tools of the public endpoint.
+# ask-mcp.sh <id> <question> — the bot's path: only the five MCP tools of the public endpoint.
 set -euo pipefail
 id=$1; q=$2; out=~/demo/runs/$id.jsonl
 cd ~/demo/mcp-run
 cfg='{"mcpServers":{"kazakhstan-law":{"type":"http","url":"https://cyphy.kz/kazakhstan-law/mcp"}}}'
 start=$(date +%s)
 claude -p "$q" --model claude-opus-5-5 --setting-sources project --mcp-config "$cfg" --strict-mcp-config --tools "" \
-  --allowedTools mcp__kazakhstan-law__search mcp__kazakhstan-law__read mcp__kazakhstan-law__at_date mcp__kazakhstan-law__history \
+  --allowedTools mcp__kazakhstan-law__search mcp__kazakhstan-law__read mcp__kazakhstan-law__at_date mcp__kazakhstan-law__history mcp__kazakhstan-law__changes \
   --output-format stream-json --verbose < /dev/null > "$out"
 end=$(date +%s)
 python3 - "$out" $((end-start)) <<'PY'
