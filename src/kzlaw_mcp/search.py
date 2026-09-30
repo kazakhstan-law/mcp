@@ -18,8 +18,11 @@ PER_FILE = 3
 PER_ACT = 5  # a code split into 100 parts must not take every hit
 MAX_LINE = 300
 NO_HITS = (
-    "No matches. Try other wording: legal terms instead of colloquial ones, word stems "
-    "('самокат' also matches 'самокатов'), or alternatives joined with '|'."
+    "No matches. Each line searched is one paragraph: 'A.*B' finds A and B only in the same "
+    "paragraph, so search separate concepts separately or join them with '|'. Do not quote "
+    "wording from memory: editions differ ('предупредив' in one, 'уведомив' in the next), so "
+    "search one or two distinctive words. A stem matches inside a word but not across its "
+    "ending: 'банкротств\\w* граждан', not 'банкротств граждан'."
 )
 HINT = "Open a passage with read(act_code, anchor=...) or read(act_code, point=...)."
 

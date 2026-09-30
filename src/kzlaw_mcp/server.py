@@ -31,9 +31,12 @@ name an act you did not open, use a search hit's `url`, verbatim.
 2. Quote only passages you opened with read, at_date or changes; a search hit alone is not \
 enough. A pending provision is cited by its `url`.
 3. Search with legal wording: "ГАИ" -> "полиция", "органы внутренних дел"; "самокат" -> \
-"электрическ самокат", "средств индивидуальной мобильности". Use stems and alternation \
-("самокат|мобильност"). Retry other wording before concluding; if nothing is found, say so \
-and name what you searched. Keep the default scopes: do not narrow search to codes. \
+"электрическ\\w* самокат", "средств индивидуальной мобильности". Use stems and alternation \
+("самокат|мобильност"). Each line is one paragraph: "A.*B" matches only inside one, so \
+search separate concepts apart or with "|". Search one or two distinctive words, not a phrase \
+recalled from memory: an older edition may word it differently. A stem inside a phrase needs \
+"\\w*" after it ("банкротств\\w* граждан"). Retry other wording before concluding; if nothing \
+is found, say so and name what you searched. Keep the default scopes: do not narrow search to codes. \
 Forms, rules and procedures are ministerial orders; a form number such as 270 is \
 searched as "форм[аеуы] 270". A question about a form is answered from the order that \
 approves it ("Об утверждении формы …"): read that order and run history on it.
@@ -77,7 +80,8 @@ SEARCH_DESC = (
     "label (e.g. 168-1) to pass to read. Scopes: codes (constitution, codes, laws), government, "
     "ministerial by default (keep them: forms and rules are ministerial orders); "
     "local-<region> only for regional questions. With act_code, only inside that act, with "
-    "every matching line."
+    "every matching line. Each line is one paragraph, so 'A.*B' never spans two; a stem "
+    "followed by more words needs '\\w*' ('банкротств\\w* граждан')."
 )
 READ_DESC = (
     "Current text of an act: an article by anchor (st592), a point by label (168-1), or a part "
