@@ -77,7 +77,7 @@ def _passages(
         if not found:
             what = f"point {point} of anchor {anchor}" if point else f"anchor {anchor}"
             raise InputError(f"{what} not found in act {ref.code} {when}; search inside the act")
-    else:
+    elif point:  # not both empty: that case returned the overview above
         hit_files = [p for p, _ in g.grep(sha, rf"^\*?{point}\. ", files, fixed=False)]
         for f in dict.fromkeys(hit_files):
             found += [(f, s) for s in point_spans(g.blob(sha, f), point)]
