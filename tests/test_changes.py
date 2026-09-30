@@ -176,3 +176,80 @@ def test_repealed_act(settings):
 def test_impossible_date(settings):
     with pytest.raises(InputError):
         changes(Corpus(settings), PD_CODE, date="2026-13-45")
+
+
+def test_period_nets_every_version_per_article(settings):
+    res = changes(Corpus(settings), PD_CODE, since="2025-05-02")
+    assert (res["period"]["from"]["date"], res["period"]["to"]["date"]) == (
+        "2025-05-01",
+        "2026-07-12",
+    )
+    assert [v["date"] for v in res["versions"]] == ["2026-07-12", "2026-01-09"]
+    items = by_label(res)
+    # announced in one version, took effect in the next: one item, both versions on it
+    assert [t["date"] for t in items["ст. 9"]["touched_by"]] == ["2026-01-09", "2026-07-12"]
+    assert [t.get("stage") for t in items["ст. 9"]["touched_by"]] == ["announced", "took_effect"]
+    assert "+3) обработки данных для ведения реестра;" in items["ст. 9"]["diff"]
+    assert "ред. до 2025-05-02" in items["ст. 9"]["before_citation"]
+    assert items["ст. 10-1"]["status"] == "added"
+    assert res["footnote_only"] == ["ст. 1"]
+
+
+def test_period_until_and_anchor_ranges(settings):
+    corpus = Corpus(settings)
+    res = changes(corpus, PD_CODE, since="2025-05-02", until="2026-03-01")
+    assert res["period"]["to"]["date"] == "2026-01-09"
+    assert by_label(res)["ст. 9"]["stage"] == "announced"
+    res = changes(corpus, PD_CODE, since="2025-05-02", anchors=["st1..st9"])
+    assert sorted(i["label"] for i in res["items"]) == ["ст. 1-2", "ст. 9"]  # not 10-1
+
+
+def test_period_by_part_follows_a_renamed_part(settings):
+    # the 2024 version moved chapter 30 from sec002-ch010 to sec002-ch030
+    res = changes(Corpus(settings), KOAP_CODE, since="2022-01-11", chapter="sec002-ch030")
+    assert [(i["label"], i["status"]) for i in res["items"]] == [("ст. 592", "modified")]
+    assert [t["date"] for t in res["items"][0]["touched_by"]] == ["2024-10-03"]
+
+
+def test_part_filter_needs_a_split_act(settings):
+    corpus = Corpus(settings)
+    with pytest.raises(InputError, match="not split into parts"):
+        changes(corpus, PD_CODE, since="2025-05-02", chapter="sec001")
+    with pytest.raises(InputError, match="its parts: sec001, sec002-ch025, sec002-ch030"):
+        changes(corpus, KOAP_CODE, chapter="sec002-ch099")
+
+
+def test_summary_has_no_text(settings):
+    res = changes(Corpus(settings), PD_CODE, since="2025-05-02", summary=True)
+    for item in res["items"]:
+        assert not {"diff", "text", "citation"} & set(item)
+    assert {i["label"] for i in res["items"]} == {"ст. 1-2", "ст. 9", "ст. 10-1"}
+
+
+def test_period_arguments(settings):
+    corpus = Corpus(settings)
+    with pytest.raises(InputError, match="pass one"):
+        changes(corpus, PD_CODE, since="2025-05-02", date="2026-01-01")
+    with pytest.raises(InputError, match="pass since too"):
+        changes(corpus, PD_CODE, until="2026-01-01")
+    with pytest.raises(InputError, match="ranges"):
+        changes(corpus, PD_CODE, anchors=["статья 9"])
+    res = changes(corpus, PD_CODE, since="2026-08-01")
+    assert res["items"] == [] and res["versions_total"] == 0
+
+
+def test_history_of_one_article(settings):
+    corpus = Corpus(settings)
+    res = history(corpus, PD_CODE, anchor="st9")
+    assert [(c["date"], c["status"], c.get("stage")) for c in res["commits"]] == [
+        ("2026-07-12", "modified", "took_effect"),
+        ("2026-01-09", "modified", "announced"),
+        ("2025-05-01", "first_version", None),
+    ]
+    res = history(corpus, PD_CODE, anchor="st10-1")
+    assert [(c["date"], c["status"]) for c in res["commits"]] == [("2026-07-12", "added")]
+    # followed across the renamed part
+    res = history(corpus, KOAP_CODE, anchor="st592")
+    assert [c["date"] for c in res["commits"]] == ["2024-10-03", "2022-01-10"]
+    with pytest.raises(InputError, match="no article"):
+        history(corpus, PD_CODE, anchor="st99")

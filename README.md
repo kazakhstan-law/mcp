@@ -28,11 +28,11 @@ the exact version it quotes.
 
 | Tool | What it does |
 |---|---|
-| `search` | Case-insensitive regex search over acts in force, or inside one act (`act_code`, a repealed one too); hits carry article anchors / point labels; `include_repealed` adds repealed acts by title |
+| `search` | Case-insensitive regex search over acts in force, or inside one act (`act_code`, a repealed one too); hits carry article anchors / point labels; `include_repealed` adds repealed acts by title; `headings_only`; a query that finds nothing is retried in the law's wording for everyday words ("курение") |
 | `read` | Current text of an article (`st592`), a point (`168-1`) or a part of an article; without either, the outline and the provisions not in force yet |
 | `at_date` | The same text as in force on a past date |
-| `history` | The act's versions and amending acts, paged (`offset`, `since`); with a phrase, when that wording appeared |
-| `changes` | What one version changed, article by article, with diffs, paged by `offset`; for an amending act, the acts it changed |
+| `history` | The act's versions and amending acts, paged (`offset`, `since`); with a phrase, when that wording appeared; with an anchor, the versions that changed that article |
+| `changes` | What one version changed, article by article, with diffs, paged by `offset`; or a period (`since`, `until`): one item per article with the versions that touched it; narrowed by `chapter` or `anchors` (`st570..st621`), `summary` without diffs; for an amending act, the acts it changed |
 
 ## Run it yourself
 

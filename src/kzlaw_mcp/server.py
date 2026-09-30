@@ -52,8 +52,11 @@ at_date on that date, compared with read; "since when" -> history with a short e
 from the current text (case-sensitive); `introduced` is when it appeared. A new code that \
 replaced a repealed one lists it in history's `predecessors`; at_date on the new code before \
 it took effect returns the old code's text, so a past date never needs the old code's number. \
-"What changed", "что нового в законе" -> history for the versions, then changes(act_code, sha) \
-on each recent one: it lists the articles added, removed and modified, with the diff. An \
+"What changed", "что нового в законе", "за год" -> changes(act_code, since=YYYY-MM-DD) in one \
+call: each article added, removed or modified in the period, with the net diff and the \
+versions that touched it. Narrow a code to the topic with chapter (a part from read's outline) \
+or anchors (["st570..st621"]); summary=true first for a large act, then anchor=... for one \
+article in full. "When did article X change" -> history(act_code, anchor="st613"). An \
 amending act ("О внесении изменений…") has no text here: changes on its code lists the acts \
 it changed. A rule older than the act now in force may come from a repealed act that no \
 `predecessors` names: search with include_repealed=true lists repealed acts by title, then \
@@ -115,7 +118,8 @@ HISTORY_DESC = (
     "phrase, only versions that added or removed that exact, case-sensitive text; the oldest is "
     "when it entered the law. predecessors: the repealed acts it replaced (an earlier code), "
     "with their versions. Newest first, up to limit (max 50); total counts them all. For more: "
-    "offset=next_offset, or since=YYYY-MM-DD for the versions from a date."
+    "offset=next_offset, or since=YYYY-MM-DD for the versions from a date. With anchor "
+    "(st613): only the versions that changed that article's text."
 )
 
 CHANGES_DESC = (
@@ -125,7 +129,12 @@ CHANGES_DESC = (
     "anchor narrows it to one article, in full. total and counts cover the whole version; a "
     "large one comes in pages: pass next_offset as offset for the next. For an amending act's "
     "code: the acts it changed (acts_total distinct acts), paged the same way; a repealed act "
-    "that also amended others answers so too unless sha or date is given."
+    "that also amended others answers so too unless sha or date is given. A period: "
+    "since=YYYY-MM-DD (until optional) compares the text the day before since with the end of "
+    "the period, one item per article with the versions (touched_by) that changed it: 'what "
+    "changed this year' in one call. Narrow any mode with chapter (a part file of a split "
+    "code, e.g. sec002-ch030, from read's outline) or anchors (['st613', 'st570..st621']). "
+    "summary=true: the list only, no text or diffs."
 )
 
 
@@ -206,6 +215,7 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
         limit: int = 30,
         offset: int = 0,
         since: str | None = None,
+        anchor: str | None = None,
     ) -> dict[str, Any]:
         args = {
             "act_code": act_code,
@@ -213,11 +223,12 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             "limit": limit,
             "offset": offset,
             "since": since,
+            "anchor": anchor,
         }
         return await call(
             "history",
             args,
-            lambda: history_tool(corpus, act_code, phrase, limit, offset, since),
+            lambda: history_tool(corpus, act_code, phrase, limit, offset, since, anchor),
         )
 
     @mcp.tool(description=CHANGES_DESC)
@@ -228,6 +239,11 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
         lang: Lang = "rus",
         anchor: str | None = None,
         offset: int = 0,
+        since: str | None = None,
+        until: str | None = None,
+        anchors: list[str] | None = None,
+        chapter: str | None = None,
+        summary: bool = False,
     ) -> dict[str, Any]:
         args = {
             "act_code": act_code,
@@ -236,11 +252,29 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             "lang": lang,
             "anchor": anchor,
             "offset": offset,
+            "since": since,
+            "until": until,
+            "anchors": anchors,
+            "chapter": chapter,
+            "summary": summary,
         }
         return await call(
             "changes",
             args,
-            lambda: changes_tool(corpus, act_code, sha, date, lang, anchor, offset),
+            lambda: changes_tool(
+                corpus,
+                act_code,
+                sha,
+                date,
+                lang,
+                anchor,
+                offset,
+                since,
+                until,
+                anchors,
+                chapter,
+                summary,
+            ),
         )
 
     @mcp.custom_route("/", methods=["GET"])

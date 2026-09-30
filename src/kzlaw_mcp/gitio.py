@@ -43,6 +43,9 @@ def run(
     return Output(data.decode("utf-8", "replace"), truncated, proc.returncode, data)
 
 
+NULL_BLOB = "0" * 40
+
+
 class Git:
     """Read-only git plumbing on one repository."""
 
@@ -172,6 +175,36 @@ class Git:
             found.append(data[end + 1 : end + 1 + size].decode("utf-8", "replace"))
             pos = end + 1 + size + 1
         return found
+
+    def log_files(self, fmt: str, *args: str) -> list[tuple[str, dict[str, tuple[str, str]]]]:
+        """`git log` records in `fmt`, each with the files it changed: path -> (old, new) blob
+        ids, NULL_BLOB for a side where the file is absent."""
+        out = self._git(
+            "log",
+            f"--format=%x1d{fmt}%x1d",
+            "--raw",
+            "--no-renames",
+            "--no-abbrev",
+            *args,
+            max_bytes=16_000_000,
+        )
+        if out.truncated:
+            raise CommandError("git log output too large")
+        records = []
+        for chunk in out.text.split("\x1d")[1:]:
+            if not chunk.strip():
+                continue
+            if not chunk.startswith("\n"):
+                records.append((chunk, {}))
+                continue
+            files = {}
+            for line in chunk.splitlines():
+                if line.startswith(":"):
+                    info, path = line[1:].split("\t", 1)
+                    _, _, old, new, _ = info.split()
+                    files[path] = (old, new)
+            records[-1] = (records[-1][0], files)
+        return records
 
     def log(self, *args: str, max_bytes: int = 1_000_000, strict: bool = False) -> str:
         """`git log`, cut at `max_bytes`; with `strict`, output past it is an error instead."""

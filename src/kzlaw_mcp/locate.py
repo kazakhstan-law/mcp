@@ -80,6 +80,25 @@ def article_span(text: str, anchor: str) -> Span | None:
     return _span(lines, i, j, title)
 
 
+def body_lines(text: str) -> list[str]:
+    """The provision's own lines: no blanks, anchors or footnotes, which every amendment
+    rewrites."""
+    return [
+        ln
+        for ln in text.split("\n")
+        if ln.strip() and not ln.lstrip().startswith(">") and not ANCHOR_LINE.match(ln)
+    ]
+
+
+def stage(removed: list[str], added: list[str]) -> str | None:
+    """'took_effect' when a placeholder went away, 'announced' when one came in."""
+    if any(PLACEHOLDER.match(ln.strip()) for ln in removed):
+        return "took_effect"
+    if any(PLACEHOLDER.match(ln.strip()) for ln in added):
+        return "announced"
+    return None
+
+
 def point_spans(text: str, label: str, *, within: Span | None = None) -> list[Span]:
     """Every point `label` in `text` (or inside `within`), each up to the next point or heading."""
     lines = text.split("\n")

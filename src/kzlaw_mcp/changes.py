@@ -12,9 +12,11 @@ from __future__ import annotations
 import datetime as dt
 import difflib
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, locator_label, title_of
+from kzlaw_mcp.gitio import NULL_BLOB
 from kzlaw_mcp.history import FORMAT, parse_log
 from kzlaw_mcp.locate import (
     ANCHOR_ID,
@@ -23,6 +25,7 @@ from kzlaw_mcp.locate import (
     PLACEHOLDER,
     POINT_START,
     line_context,
+    stage,
 )
 
 ACT_DIR = re.compile(r"^.*?-[0-9]+(?=/)")
@@ -35,6 +38,11 @@ MAX_ANCHOR_TEXT = 12_000
 MAX_AMENDED = 100
 MAX_PENDING = 30
 MAX_PENDING_TRACED = 10
+MAX_SUMMARY = 150
+SHORT = 10  # a sha prefix: changes takes 7-40 characters
+MAX_VERSIONS = 60
+MAX_ANCHORS = 50
+RANGE = re.compile(r"^st([0-9]+(?:-[0-9]+)*)\.\.st([0-9]+(?:-[0-9]+)*)$")
 PENDING_NEEDLES = ["вводится в действие", "Вводится в действие", "қолданысқа енгізіледі"]
 EFFECTIVE = re.compile(r"(?:с (\d{2})\.(\d{2})\.(\d{4})|(\d{2})\.(\d{2})\.(\d{4}) бастап)")
 NOTE = (
@@ -45,6 +53,19 @@ NOTE = (
     "only the footnotes changed. Cite with the item's citation (new text) or before_citation (old), as is. "
     "total and counts cover the whole version; a large one comes in pages: next_offset is the "
     "offset for the next page (null on the last), index lists every item."
+)
+
+PERIOD_NOTE = (
+    "Period: each item is one article (or point) as it stood the day before since "
+    "(before_citation) against the end of the period (citation), with the net diff; "
+    "touched_by lists the versions in the period that changed its text, oldest first; "
+    "versions: every version of the act in the period, with its amending act (act); "
+    "changes(act_code, sha) shows one version alone. An article changed and changed back within the period "
+    "is not listed. total and counts cover the whole period; a large one comes in pages: "
+    "next_offset is the offset for the next page (null on the last), index lists every item."
+)
+SUMMARY_NOTE = (
+    " summary: no text, diffs or citations; pass anchor=... without summary for one in full."
 )
 
 
@@ -143,17 +164,6 @@ def segments(file: str, text: str) -> list[Segment]:
 def _clip(lines: list[str], budget: int) -> tuple[str, bool]:
     text = "\n".join(lines)
     return (text, False) if len(text) <= budget else (text[:budget] + "\n[…]", True)
-
-
-def _stage(removed: list[str], added: list[str]) -> str | None:
-    def any_placeholder(lines: list[str]) -> bool:
-        return any(PLACEHOLDER.match(ln.strip()) for ln in lines)
-
-    if any_placeholder(removed):
-        return "took_effect"
-    if any_placeholder(added):
-        return "announced"
-    return None
 
 
 def _side(
@@ -342,92 +352,93 @@ def amended_by(corpus: Corpus, code: str, offset: int = 0) -> dict | None:
     }
 
 
-def changes(
-    corpus: Corpus,
-    act_code: str,
-    sha: str | None = None,
-    date: str | None = None,
-    lang: str = "rus",
-    anchor: str | None = None,
-    offset: int = 0,
-) -> dict:
-    lang = check_lang(lang)
-    anchor = anchor.strip() if anchor else None
-    if anchor and not ANCHOR_ID.match(anchor):
-        raise InputError("anchor looks like st592 or an0_p168-1 (take it from read or search)")
-    if date is not None:
-        try:
-            if len(date) != 10:
-                raise ValueError
-            dt.date.fromisoformat(date)
-        except (TypeError, ValueError):
-            raise InputError("date must be YYYY-MM-DD") from None
-    code = str(act_code).strip()
+def _check_date(name: str, value: str | None) -> None:
+    if value is None:
+        return
     try:
-        ref = corpus.find_any(act_code)
-    except InputError:
-        if code.isdigit() and (amended := amended_by(corpus, code, offset)):
-            return amended
-        raise
-    # Thousands of repealed acts also amended others (a law that enacts a code amends the
-    # rest): asked for no version of their own, they answer with the acts they changed.
-    if (
-        not (sha or date or anchor)
-        and corpus.repealed(code)
-        and (amended := amended_by(corpus, code, offset))
-    ):
-        return amended
+        if len(value) != 10:
+            raise ValueError
+        dt.date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise InputError(f"{name} must be YYYY-MM-DD") from None
 
-    g = corpus.git(ref.scope)
-    version = _version(corpus, ref, sha, date)
-    new = version["sha"]
-    if not g.ls_tree(new, f"{ref.path}/meta.yaml"):
-        replaced = corpus.replaced(ref.code)
-        return {
-            "act_code": ref.code,
-            "scope": ref.scope,
-            "version": version,
-            "repealed": True,
-            "replaced_by": replaced.successor if replaced else None,
-            "items": [],
-            "note": "This version repealed the act: its text ends here. changes on the act that "
-            "replaced it (replaced_by), or on this act's earlier versions from history.",
-        }
-    result: dict = {
-        "act_code": ref.code,
-        "scope": ref.scope,
-        "title": title_of(corpus.meta(ref, new), lang),
-        "lang": lang,
-        "version": version,
-    }
-    old = g.rev_parse(f"{new}^")
-    if old is None or not g.ls_tree(old, f"{ref.path}/meta.yaml"):
-        return result | {
-            "previous": None,
-            "items": [],
-            "note": "This is the act's first version: there is nothing earlier to compare.",
-        }
-    prev = parse_log(g.log("-1", f"--format={FORMAT}", old, "--", ref.path), corpus, ref.scope)
-    # The act's previous version: the same files as the parent, and a sha history lists.
-    old = prev[0]["sha"]
-    result["previous"] = {k: prev[0][k] for k in ("date", "sha", "subject", "cause_act_requisite")}
 
-    names = g.diff_names(old, new, f"{ref.path}/{lang}.md", f"{ref.path}/{lang}")
-    if not names:
-        return result | {
-            "items": [],
-            "note": f"This version changed no '{lang}' text: only its metadata, or the other "
-            "language's text.",
-        }
-    before, old_sizes, old_rest = _side(corpus, ref, old, names)
+def _st_number(key: str) -> tuple[int, ...] | None:
+    m = re.match(r"^st([0-9]+(?:-[0-9]+)*)$", key)
+    return tuple(int(n) for n in m.group(1).split("-")) if m else None
+
+
+def _wanted(
+    corpus: Corpus, ref: ActRef, sha: str, lang: str, anchors: list[str], chapter: str | None
+) -> Callable[[str, Segment], bool] | None:
+    """Which articles to compare: the anchors, st-ranges and part the model asked for."""
+    if len(anchors) > MAX_ANCHORS:
+        raise InputError(f"anchors takes at most {MAX_ANCHORS} anchors or ranges")
+    exact: set[str] = set()
+    ranges: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
+    for a in (a.strip() for a in anchors):
+        if m := RANGE.match(a):
+            lo, hi = _st_number(f"st{m.group(1)}"), _st_number(f"st{m.group(2)}")
+            assert lo is not None and hi is not None
+            ranges.append((lo, hi))
+        elif ANCHOR_ID.match(a):
+            exact.add(a)
+        else:
+            raise InputError(
+                f"anchors holds anchors (st592, an0_p168-1) or article ranges (st570..st621), "
+                f"not {a!r}"
+            )
+    if chapter is not None:
+        chapter = chapter.strip().removesuffix(".md").rsplit("/", 1)[-1]
+        parts = sorted(
+            {f.rsplit("/", 1)[1][:-3] for f in corpus.lang_files(ref, sha, lang) if "/" in f}
+            - {lang}
+        )
+        if not parts:
+            raise InputError(
+                f"act {ref.code} is not split into parts: narrow it with anchors instead, "
+                "e.g. ['st570..st621']"
+            )
+        if chapter not in parts:
+            raise InputError(
+                f"act {ref.code} has no part {chapter!r}; its parts: {', '.join(parts[:80])}"
+            )
+    if not (exact or ranges or chapter):
+        return None
+
+    def want(key: str, seg: Segment) -> bool:
+        if chapter and seg.file.rsplit("/", 1)[-1][:-3] != chapter:
+            return False
+        if not (exact or ranges) or key in exact:
+            return True
+        n = _st_number(key)
+        return n is not None and any(lo <= n and n[: len(hi)] <= hi for lo, hi in ranges)
+
+    return want
+
+
+Entry = tuple[str, dict, list[str], str]  # key, item, its text or diff lines, the field name
+
+
+def _compare(
+    corpus: Corpus,
+    ref: ActRef,
+    old: str | None,
+    new: str,
+    names: list[str],
+    before_label: str,
+    want: Callable[[str, Segment], bool] | None,
+) -> tuple[list[Entry], list[str]]:
+    """The articles that differ between commits `old` (None: nothing yet) and `new`."""
+    before, old_sizes, old_rest = _side(corpus, ref, old, names) if old else ({}, {}, [])
     after, new_sizes, new_rest = _side(corpus, ref, new, names)
     keys = list(after) + [k for k in before if k not in after]
-    if anchor:
-        keys = [k for k in keys if k == anchor]
+    if want:
+        keys = [k for k in keys if want(k, after.get(k) or before[k])]
 
     # Every changed item first, text attached later: the page is cut by the text budget, and
     # the index and counts cover all of them, so the model can count and page through the rest.
-    entries: list[tuple[dict, list[str], str]] = []
+    entries: list[Entry] = []
     footnote_only: list[str] = []
     for key in keys:
         a, b = before.get(key), after.get(key)
@@ -462,17 +473,16 @@ def changes(
             assert a is not None
             item["status"] = "removed"
             removed, added, lines = a.body, [], a.body
-        if stage := _stage(removed, added):
-            item["stage"] = stage
+        if st := stage(removed, added):
+            item["stage"] = st
         if b:
             url = _url(corpus, ref, new, b, new_sizes)
             item["citation"] = f"[{b.label}]({url})"
-        if a:
-            item["before_citation"] = (
-                f"[{a.label}, ред. до {version['date']}]({_url(corpus, ref, old, a, old_sizes)})"
-            )
-        entries.append((item, lines, "diff" if a and b else "text"))
-    if old_rest != new_rest and not anchor:
+        if a and old:
+            url = _url(corpus, ref, old, a, old_sizes)
+            item["before_citation"] = f"[{a.label}, ред. до {before_label}]({url})"
+        entries.append((key, item, lines, "diff" if a and b else "text"))
+    if old_rest != new_rest and not want:
         diff = [
             ln
             for ln in difflib.unified_diff(old_rest, new_rest, n=1, lineterm="")
@@ -485,31 +495,248 @@ def changes(
             "note": "text outside any article (chapter headings, unnumbered provisions); "
             "read the act to cite it",
         }
-        entries.append((item, diff, "diff"))
+        entries.append(("", item, diff, "diff"))
+    return entries, footnote_only
 
+
+def _page(entries: list[Entry], offset: int, one_anchor: bool, summary: bool) -> dict:
     offset = max(0, int(offset))
     page: list[dict] = []
-    spent = 0
-    for item, lines, field in entries[offset:]:
-        if len(page) >= MAX_ITEMS:
-            break
-        cap = MAX_ANCHOR_TEXT if anchor else MAX_ITEM_TEXT
-        room = MAX_TOTAL_TEXT - spent
-        # A page ends before an item whose text would not fit, never inside it.
-        if page and min(len("\n".join(lines)), cap) > room:
-            break
-        text, cut = _clip(lines, min(cap, max(room, 500)))
-        page.append({**item, field: text, "truncated": cut})
-        spent += len(text)
+    if summary:
+        lean = ("label", "anchor", "status", "stage", "touched_by")
+        page = [
+            {k: e[1][k] for k in lean if k in e[1]} | {"heading": (e[1]["heading"] or "")[:120]}
+            for e in entries[offset : offset + MAX_SUMMARY]
+        ]
+    else:
+        spent = 0
+        for _, item, lines, field in entries[offset:]:
+            if len(page) >= MAX_ITEMS:
+                break
+            cap = MAX_ANCHOR_TEXT if one_anchor else MAX_ITEM_TEXT
+            room = MAX_TOTAL_TEXT - spent
+            # A page ends before an item whose text would not fit, never inside it.
+            if page and min(len("\n".join(lines)), cap) > room:
+                break
+            text, cut = _clip(lines, min(cap, max(room, 500)))
+            page.append({**item, field: text, "truncated": cut})
+            spent += len(text)
     shown = offset + len(page)
-    counts = {s: sum(1 for e in entries if e[0]["status"] == s) for s in STATUSES}
     paged = {
         "items": page,
         "total": len(entries),
-        "counts": counts,
+        "counts": {s: sum(1 for e in entries if e[1]["status"] == s) for s in STATUSES},
         "offset": offset,
         "next_offset": shown if shown < len(entries) else None,
     }
-    if len(page) < len(entries):
-        paged["index"] = [f"{e[0]['label']}: {e[0]['status']}" for e in entries]
-    return result | paged | {"footnote_only": footnote_only, "note": NOTE}
+    if len(page) < len(entries) and not summary:
+        paged["index"] = [f"{e[1]['label']}: {e[1]['status']}" for e in entries]
+    return paged
+
+
+def _touched(
+    corpus: Corpus, ref: ActRef, since: str, end: str, paths: tuple[str, ...], keys: set[str]
+) -> dict[str, list[dict]]:
+    """For each key, the versions from `since` to `end` that changed its text, oldest first.
+
+    One `git log --raw` names each version's changed files and their blobs; a file's segments
+    are parsed once per blob, since the new side of one version is the old side of the next.
+    """
+    g = corpus.git(ref.scope)
+    records = g.log_files(FORMAT, f"--since={since}T00:00:00Z", end, "--", *paths)
+    bodies: dict[str, dict[str, list[str]]] = {NULL_BLOB: {}}
+    out: dict[str, list[dict]] = {k: [] for k in keys}
+    for header, files in reversed(records):
+        need = {b: path for path, pair in files.items() for b in pair if b not in bodies}
+        for (blob, path), text in zip(need.items(), g.blobs(list(need)), strict=True):
+            bodies[blob] = {s.key: s.body for s in segments(path, text or "")}
+        old: dict[str, list[str]] = {}
+        new: dict[str, list[str]] = {}
+        for o, n in files.values():
+            old |= bodies[o]
+            new |= bodies[n]
+        commit = parse_log(header, corpus, ref.scope)[0]
+        for k in keys:
+            a, b = old.get(k), new.get(k)
+            if a == b:
+                continue
+            touch = {"date": commit["date"], "sha": commit["sha"][:SHORT]}
+            if st := stage([ln for ln in a or [] if ln not in (b or [])], b or []):
+                touch["stage"] = st
+            out[k].append(touch)
+    return out
+
+
+def _period(
+    corpus: Corpus,
+    ref: ActRef,
+    lang: str,
+    since: str,
+    until: str | None,
+    anchors: list[str],
+    chapter: str | None,
+    offset: int,
+    summary: bool,
+    one_anchor: bool,
+) -> dict:
+    g = corpus.git(ref.scope)
+    end = _version(corpus, ref, None, until)
+    want = _wanted(corpus, ref, end["sha"], lang, anchors, chapter)
+    day_before = (dt.date.fromisoformat(since) - dt.timedelta(days=1)).isoformat()
+    found = parse_log(
+        g.log(
+            "-1",
+            f"--format={FORMAT}",
+            f"--before={day_before}T23:59:59Z",
+            end["sha"],
+            "--",
+            ref.path,
+        ),
+        corpus,
+        ref.scope,
+    )
+    base = found[0] if found and g.ls_tree(found[0]["sha"], f"{ref.path}/meta.yaml") else None
+    versions = (
+        parse_log(
+            g.log(f"--format={FORMAT}", f"--since={since}T00:00:00Z", end["sha"], "--", ref.path),
+            corpus,
+            ref.scope,
+        )
+        if end["date"] >= since
+        else []
+    )
+
+    def short(v: dict) -> dict:
+        return {"date": v["date"], "sha": v["sha"][:SHORT], "act": v["cause_act_requisite"]}
+
+    result: dict = {
+        "act_code": ref.code,
+        "scope": ref.scope,
+        "title": title_of(corpus.meta(ref, end["sha"]), lang),
+        "lang": lang,
+        "period": {
+            "since": since,
+            "until": until,
+            "from": short(base) if base else None,
+            "to": short(end),
+        },
+        "versions_total": len(versions),
+        "versions": [short(v) for v in versions[:MAX_VERSIONS]],
+    }
+    if not versions:
+        return result | {"items": [], "note": "The act has no version in this period."}
+    paths = (f"{ref.path}/{lang}.md", f"{ref.path}/{lang}")
+    old = base["sha"] if base else None
+    names = (
+        g.diff_names(old, end["sha"], *paths) if old else corpus.lang_files(ref, end["sha"], lang)
+    )
+    entries, footnote_only = _compare(corpus, ref, old, end["sha"], names, since, want)
+    touched = _touched(corpus, ref, since, end["sha"], paths, {e[0] for e in entries if e[0]})
+    for key, item, _, _ in entries:
+        if key:
+            item["touched_by"] = touched[key]
+    note = PERIOD_NOTE + (SUMMARY_NOTE if summary else "")
+    return (
+        result
+        | _page(entries, offset, one_anchor, summary)
+        | {"footnote_only": footnote_only, "note": note}
+    )
+
+
+def changes(
+    corpus: Corpus,
+    act_code: str,
+    sha: str | None = None,
+    date: str | None = None,
+    lang: str = "rus",
+    anchor: str | None = None,
+    offset: int = 0,
+    since: str | None = None,
+    until: str | None = None,
+    anchors: list[str] | None = None,
+    chapter: str | None = None,
+    summary: bool = False,
+) -> dict:
+    lang = check_lang(lang)
+    anchor = anchor.strip() if anchor else None
+    if anchor and not ANCHOR_ID.match(anchor):
+        raise InputError("anchor looks like st592 or an0_p168-1 (take it from read or search)")
+    for name, value in (("date", date), ("since", since), ("until", until)):
+        _check_date(name, value)
+    if since is None and until is not None:
+        raise InputError("until closes a period: pass since too")
+    if since is not None and (sha or date):
+        raise InputError("since/until ask for a period, sha or date for one version: pass one")
+    if since and until and until < since:
+        raise InputError("until is before since")
+    wanted = [*(anchors or []), *([anchor] if anchor else [])]
+    one_anchor = bool(anchor) and not anchors and not chapter
+    code = str(act_code).strip()
+    try:
+        ref = corpus.find_any(act_code)
+    except InputError:
+        if code.isdigit() and (amended := amended_by(corpus, code, offset)):
+            return amended
+        raise
+    # Thousands of repealed acts also amended others (a law that enacts a code amends the
+    # rest): asked for no version of their own, they answer with the acts they changed.
+    if (
+        not (sha or date or since or wanted or chapter)
+        and corpus.repealed(code)
+        and (amended := amended_by(corpus, code, offset))
+    ):
+        return amended
+    if since is not None:
+        return _period(
+            corpus, ref, lang, since, until, wanted, chapter, offset, summary, one_anchor
+        )
+
+    g = corpus.git(ref.scope)
+    version = _version(corpus, ref, sha, date)
+    new = version["sha"]
+    if not g.ls_tree(new, f"{ref.path}/meta.yaml"):
+        replaced = corpus.replaced(ref.code)
+        return {
+            "act_code": ref.code,
+            "scope": ref.scope,
+            "version": version,
+            "repealed": True,
+            "replaced_by": replaced.successor if replaced else None,
+            "items": [],
+            "note": "This version repealed the act: its text ends here. changes on the act that "
+            "replaced it (replaced_by), or on this act's earlier versions from history.",
+        }
+    want = _wanted(corpus, ref, new, lang, wanted, chapter)
+    result: dict = {
+        "act_code": ref.code,
+        "scope": ref.scope,
+        "title": title_of(corpus.meta(ref, new), lang),
+        "lang": lang,
+        "version": version,
+    }
+    old = g.rev_parse(f"{new}^")
+    if old is None or not g.ls_tree(old, f"{ref.path}/meta.yaml"):
+        return result | {
+            "previous": None,
+            "items": [],
+            "note": "This is the act's first version: there is nothing earlier to compare.",
+        }
+    prev = parse_log(g.log("-1", f"--format={FORMAT}", old, "--", ref.path), corpus, ref.scope)
+    # The act's previous version: the same files as the parent, and a sha history lists.
+    old = prev[0]["sha"]
+    result["previous"] = {k: prev[0][k] for k in ("date", "sha", "subject", "cause_act_requisite")}
+
+    names = g.diff_names(old, new, f"{ref.path}/{lang}.md", f"{ref.path}/{lang}")
+    if not names:
+        return result | {
+            "items": [],
+            "note": f"This version changed no '{lang}' text: only its metadata, or the other "
+            "language's text.",
+        }
+    entries, footnote_only = _compare(corpus, ref, old, new, names, version["date"], want)
+    note = NOTE + (SUMMARY_NOTE if summary else "")
+    return (
+        result
+        | _page(entries, offset, one_anchor, summary)
+        | {"footnote_only": footnote_only, "note": note}
+    )
