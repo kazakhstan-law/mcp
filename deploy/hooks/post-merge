@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Deploy after a pull. Enabled per checkout, on the server only:
+#   git config core.hooksPath deploy/hooks
+# Detached into its own transient unit so the pull (fleet-selfpull) does not wait for a
+# docker build, and the log lands in the journal: journalctl --user -u 'kzlaw-deploy-*'
+cd "$(git rev-parse --show-toplevel)" || exit 0
+systemd-run --user --quiet --collect --unit "kzlaw-deploy-$(date +%s)" \
+  --description "kazakhstan-law MCP deploy" "$PWD/scripts/deploy.sh" || true

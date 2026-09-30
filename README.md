@@ -43,7 +43,12 @@ KZLAW_CORPUS_ROOT=./data/corpus uv run kzlaw-mcp                      # http://1
 uv run pytest
 ```
 
-Or `docker compose up -d` (see `compose.yml`). Full clones of all 25 scopes take ≈ 1.8 GB packed
+Or `docker compose up -d` (see `compose.yml`).
+
+**Deploy** (the server checkout): `scripts/deploy.sh` runs the tests in the image's test
+stage, rebuilds, restarts and checks health, rolling back to the previous image on failure;
+it does nothing when the image already runs HEAD. With `git config core.hooksPath
+deploy/hooks` it runs by itself after every pull; logs: `journalctl --user -u 'kzlaw-deploy-*'`. Full clones of all 25 scopes take ≈ 1.8 GB packed
 and ≈ 6 GB of working trees.
 
 ## License
