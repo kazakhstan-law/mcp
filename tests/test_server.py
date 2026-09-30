@@ -5,8 +5,7 @@ import time
 import httpx
 import pytest
 import uvicorn
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
+from fastmcp import Client
 
 from conftest import KOAP_CODE
 from kzlaw_mcp.server import build_server
@@ -17,7 +16,7 @@ def server_url(settings):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    app = build_server(settings).streamable_http_app()
+    app = build_server(settings).http_app(stateless_http=True, json_response=True)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -31,20 +30,18 @@ def server_url(settings):
 
 
 @pytest.mark.anyio
-async def test_tools_over_streamable_http(server_url):
-    async with (
-        streamable_http_client(f"{server_url}/mcp") as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        init = await session.initialize()
-        assert "citation" in init.instructions
-        names = {t.name for t in (await session.list_tools()).tools}
+@pytest.mark.parametrize("mode", ["legacy", "auto"])  # the initialize handshake; server/discover
+async def test_tools_over_streamable_http(server_url, mode):
+    async with Client(f"{server_url}/mcp", mode=mode) as client:
+        assert "citation" in (client.instructions or "")
+        names = {t.name for t in await client.list_tools()}
         assert names == {"search", "read", "at_date", "history", "changes"}
-        res = await session.call_tool("search", {"query": "превышение установленной скорости"})
-        assert not res.isError
-        assert res.structuredContent["acts"][0]["act_code"] == KOAP_CODE
-        bad = await session.call_tool("read", {"act_code": "../../etc"})
-        assert bad.isError and "act_code" in bad.content[0].text
+        res = await client.call_tool("search", {"query": "превышение установленной скорости"})
+        assert res.structured_content is not None
+        assert res.structured_content["acts"][0]["act_code"] == KOAP_CODE
+        bad = await client.call_tool_mcp("read", {"act_code": "../../etc"})
+        assert bad.is_error
+        assert bad.content[0].text.startswith("act_code")
 
 
 def test_landing_and_health(server_url):

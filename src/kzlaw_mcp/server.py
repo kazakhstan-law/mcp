@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import contextlib
 import threading
+from collections.abc import Callable
 from typing import Any, Literal
 
-from mcp.server.fastmcp import Context, FastMCP
+from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_request
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 
 from kzlaw_mcp.changes import changes as changes_tool
 from kzlaw_mcp.config import Settings
-from kzlaw_mcp.corpus import Corpus
+from kzlaw_mcp.corpus import Corpus, InputError
 from kzlaw_mcp.gate import Gate
 from kzlaw_mcp.history import history as history_tool
 from kzlaw_mcp.passages import at_date as at_date_tool
@@ -120,25 +123,26 @@ CHANGES_DESC = (
 )
 
 
-def _request(ctx: Context) -> Request | None:
-    return getattr(ctx.request_context, "request", None)
+def _request() -> Request | None:
+    try:
+        return get_http_request()
+    except RuntimeError:  # called in-process, not over HTTP
+        return None
 
 
 def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
     corpus = corpus or Corpus(settings)
     gate = Gate(settings)
-    mcp = FastMCP(
-        "kazakhstan-law",
-        instructions=INSTRUCTIONS,
-        host=settings.host,
-        port=settings.port,
-        stateless_http=True,
-        json_response=True,
-    )
+    mcp = FastMCP("kazakhstan-law", instructions=INSTRUCTIONS)
+
+    async def call(tool: str, args: dict, fn: Callable[[], dict]) -> dict:
+        try:
+            return await gate.call(tool, args, _request(), fn)
+        except InputError as exc:  # the message is for the model: no "Error calling tool" prefix
+            raise ToolError(str(exc)) from exc
 
     @mcp.tool(description=SEARCH_DESC)
     async def search(
-        ctx: Context,
         query: str,
         lang: Lang = "rus",
         scopes: list[str] | None = None,
@@ -154,29 +158,24 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             "act_code": act_code,
             "include_repealed": include_repealed,
         }
-        return await gate.call(
+        return await call(
             "search",
             args,
-            _request(ctx),
             lambda: search_tool(corpus, query, lang, scopes, limit, act_code, include_repealed),
         )
 
     @mcp.tool(description=READ_DESC)
     async def read(
-        ctx: Context,
         act_code: str,
         lang: Lang = "rus",
         anchor: str | None = None,
         point: str | None = None,
     ) -> dict[str, Any]:
         args = {"act_code": act_code, "lang": lang, "anchor": anchor, "point": point}
-        return await gate.call(
-            "read", args, _request(ctx), lambda: read_tool(corpus, act_code, lang, anchor, point)
-        )
+        return await call("read", args, lambda: read_tool(corpus, act_code, lang, anchor, point))
 
     @mcp.tool(description=AT_DATE_DESC)
     async def at_date(
-        ctx: Context,
         act_code: str,
         date: str,
         lang: Lang = "rus",
@@ -184,16 +183,14 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
         point: str | None = None,
     ) -> dict[str, Any]:
         args = {"act_code": act_code, "date": date, "lang": lang, "anchor": anchor, "point": point}
-        return await gate.call(
+        return await call(
             "at_date",
             args,
-            _request(ctx),
             lambda: at_date_tool(corpus, act_code, date, lang, anchor, point),
         )
 
     @mcp.tool(description=HISTORY_DESC)
     async def history(
-        ctx: Context,
         act_code: str,
         phrase: str | None = None,
         limit: int = 30,
@@ -207,16 +204,14 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             "offset": offset,
             "since": since,
         }
-        return await gate.call(
+        return await call(
             "history",
             args,
-            _request(ctx),
             lambda: history_tool(corpus, act_code, phrase, limit, offset, since),
         )
 
     @mcp.tool(description=CHANGES_DESC)
     async def changes(
-        ctx: Context,
         act_code: str,
         sha: str | None = None,
         date: str | None = None,
@@ -232,10 +227,9 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             "anchor": anchor,
             "offset": offset,
         }
-        return await gate.call(
+        return await call(
             "changes",
             args,
-            _request(ctx),
             lambda: changes_tool(corpus, act_code, sha, date, lang, anchor, offset),
         )
 
@@ -262,4 +256,11 @@ def main() -> None:
     settings = Settings.from_env()
     corpus = Corpus(settings)
     threading.Thread(target=_warm, args=(corpus,), daemon=True).start()
-    build_server(settings, corpus).run(transport="streamable-http")
+    build_server(settings, corpus).run(
+        transport="http",
+        host=settings.host,
+        port=settings.port,
+        stateless_http=True,
+        json_response=True,
+        show_banner=False,
+    )
