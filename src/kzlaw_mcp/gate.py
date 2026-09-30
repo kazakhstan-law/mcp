@@ -10,6 +10,7 @@ from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import anyio.to_thread
@@ -18,9 +19,14 @@ from kzlaw_mcp.config import Settings
 from kzlaw_mcp.corpus import InputError
 from kzlaw_mcp.gitio import CommandError
 
+if TYPE_CHECKING:
+    from starlette.requests import Request
+
 
 class RateLimiter:
-    def __init__(self, calls: int, window_s: float, clock: Callable[[], float] = time.monotonic):
+    def __init__(
+        self, calls: int, window_s: float, clock: Callable[[], float] = time.monotonic
+    ) -> None:
         self.calls, self.window, self._clock = calls, window_s, clock
         self._hits: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
@@ -42,11 +48,11 @@ class RateLimiter:
 
 
 class CallLog:
-    def __init__(self, path: Path | None, salt: str):
+    def __init__(self, path: Path | None, salt: str) -> None:
         self.path, self.salt = path, salt
         self._lock = threading.Lock()
 
-    def record(self, *, ip: str, **fields) -> None:
+    def record(self, *, ip: str, **fields: Any) -> None:
         if self.path is None:
             return
         row = {
@@ -59,7 +65,7 @@ class CallLog:
             fh.write(line + "\n")
 
 
-def client_ip(request, trusted: frozenset[str]) -> tuple[str, bool]:
+def client_ip(request: Request | None, trusted: frozenset[str]) -> tuple[str, bool]:
     """The client's address. X-Forwarded-For counts only when the peer is our proxy, and then
     only its last entry: Caddy appends the address it saw, anything before it is client-supplied."""
     if request is None:
@@ -73,7 +79,7 @@ def client_ip(request, trusted: frozenset[str]) -> tuple[str, bool]:
 
 
 class Gate:
-    def __init__(self, settings: Settings, clock: Callable[[], float] = time.monotonic):
+    def __init__(self, settings: Settings, clock: Callable[[], float] = time.monotonic) -> None:
         if settings.log_path is not None and not settings.ip_salt:
             # sha256 of a bare IPv4 address is reversed by trying all 2**32 of them
             raise ValueError("set KZLAW_IP_SALT to a random value when the call log is on")
@@ -82,7 +88,9 @@ class Gate:
         self.log = CallLog(settings.log_path, settings.ip_salt)
         self._capacity: anyio.CapacityLimiter | None = None
 
-    async def call(self, tool: str, args: dict, request, fn: Callable[[], dict]) -> dict:
+    async def call(
+        self, tool: str, args: dict, request: Request | None, fn: Callable[[], dict]
+    ) -> dict:
         if self._capacity is None:
             self._capacity = anyio.CapacityLimiter(self.settings.max_parallel)
         ip, via_proxy = client_ip(request, self.settings.trusted_proxies)
@@ -116,7 +124,7 @@ def _ms(started: float) -> int:
 def _clip_args(args: dict, limit: int = 300) -> dict:
     """Arguments as logged: long strings cut, lists capped. Inputs are checked only later."""
 
-    def clip(v, n=limit):
+    def clip(v: object, n: int = limit) -> object:
         if isinstance(v, str):
             return v[:n]
         if isinstance(v, list):  # scopes: at most 25 names of under 40 characters

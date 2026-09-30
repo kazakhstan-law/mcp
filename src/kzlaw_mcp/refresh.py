@@ -10,6 +10,7 @@ import argparse
 import shutil
 import sys
 import time
+from pathlib import Path
 
 from kzlaw_mcp.config import ALL_SCOPES, Settings
 from kzlaw_mcp.gitio import CommandError, run
@@ -44,7 +45,7 @@ def refresh_scope(settings: Settings, scope: str) -> str:
     return "updated"
 
 
-def _has_head(repo) -> bool:
+def _has_head(repo: Path) -> bool:
     try:
         run(["git", "rev-parse", "--verify", "-q", "HEAD"], repo, timeout=30)
         return True

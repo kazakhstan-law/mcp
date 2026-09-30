@@ -29,5 +29,25 @@ addopts = "-m 'not reference'"
 line-length = 100
 extend-exclude = ["docs"]
 
+[tool.ruff.lint]
+extend-select = ["ANN"]   # annotation presence; ty measures resolution
+ignore = ["ANN401"]       # explicit Any is allowed where deliberate
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["kzlaw_mcp", "conftest"]
+
+[tool.ty.environment]
+python-version = "3.13"
+python = "./.venv"
+root = ["./src"]
+
+[tool.ty.src]
+include = ["src", "tests"]
+exclude = ["**/__pycache__", "build", "dist"]
+respect-ignore-files = true
+
+[tool.ty.terminal]
+error-on-warning = false  # flip to true once clean

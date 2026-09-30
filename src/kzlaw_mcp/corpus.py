@@ -70,7 +70,7 @@ def locator_label(anchor: str | None, point: str | None) -> str:
 
 
 class Corpus:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._index: dict[str, ActRef] = {}
         self._replaced: dict[str, Predecessor] = {}

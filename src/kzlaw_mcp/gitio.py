@@ -41,7 +41,7 @@ def run(
 class Git:
     """Read-only git plumbing on one repository."""
 
-    def __init__(self, repo: Path, timeout: float):
+    def __init__(self, repo: Path, timeout: float) -> None:
         self.repo = repo
         self.timeout = timeout
 

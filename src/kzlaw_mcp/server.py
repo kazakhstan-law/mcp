@@ -89,7 +89,7 @@ HISTORY_DESC = (
 )
 
 
-def _request(ctx: Context):
+def _request(ctx: Context) -> Request | None:
     return getattr(ctx.request_context, "request", None)
 
 
