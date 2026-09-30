@@ -27,13 +27,13 @@ docker image inspect "$IMAGE" >/dev/null 2>&1 && docker image tag "$IMAGE" "$PRE
 docker compose build --build-arg REVISION="$rev"
 docker compose up -d
 
+# From the host, through the published port: the in-container healthcheck stays green even
+# when docker could not bind that port, which is the state hub sees as a 502.
+bind="$(sed -n 's/^KZLAW_BIND=//p' .env 2>/dev/null | tail -1)"
+url="http://${bind:-127.0.0.1}:8765/health"
 healthy() {
   for _ in $(seq 30); do
-    if docker compose exec -T server python -c \
-      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')" \
-      >/dev/null 2>&1; then
-      return 0
-    fi
+    curl -fsS -m 5 -o /dev/null "$url" 2>/dev/null && return 0
     sleep 2
   done
   return 1
@@ -43,7 +43,7 @@ if healthy; then
   echo "deployed ${rev:0:7}"
   exit 0
 fi
-echo "health check failed: rolling back to the previous image" >&2
+echo "health check failed at $url: rolling back to the previous image" >&2
 if docker image inspect "$PREV" >/dev/null 2>&1; then
   docker image tag "$PREV" "$IMAGE"
   docker compose up -d --force-recreate
