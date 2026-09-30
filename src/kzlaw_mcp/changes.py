@@ -26,6 +26,7 @@ from kzlaw_mcp.locate import (
     POINT_START,
     line_context,
     stage,
+    stage_between,
 )
 
 ACT_DIR = re.compile(r"^.*?-[0-9]+(?=/)")
@@ -561,7 +562,7 @@ def _touched(
             if a == b:
                 continue
             touch = {"date": commit["date"], "sha": commit["sha"][:SHORT]}
-            if st := stage([ln for ln in a or [] if ln not in (b or [])], b or []):
+            if st := stage_between(a, b):
                 touch["stage"] = st
             out[k].append(touch)
     return out

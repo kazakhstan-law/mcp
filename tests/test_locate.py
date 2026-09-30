@@ -1,5 +1,12 @@
 from conftest import KOAP_2024, pdd_text
-from kzlaw_mcp.locate import ANCHOR_ID, POINT_LABEL, article_span, line_context, point_spans
+from kzlaw_mcp.locate import (
+    ANCHOR_ID,
+    POINT_LABEL,
+    article_span,
+    line_context,
+    point_spans,
+    stage_between,
+)
 
 
 def test_article_span_runs_to_the_next_article():
@@ -91,3 +98,12 @@ def test_line_context_reports_the_point_anchor():
     lineno = next(i for i, l in enumerate(lines, 1) if l == "продолжение")
     ctx = line_context(lines, lineno)
     assert (ctx.anchor, ctx.point) == ("an0_p168", "168")
+
+
+def test_stage_comes_from_the_lines_that_changed():
+    placeholder = "3) вводится в действие с 01.01.2027 в соответствии с Законом РК № 1-VIII."
+    old = ["1) первое;", placeholder]
+    # an edit elsewhere in an article that keeps its placeholder announces nothing
+    assert stage_between(old, ["1) первое изменено;", placeholder]) is None
+    assert stage_between(["1) первое;"], old) == "announced"
+    assert stage_between(old, ["1) первое;", "3) текст."]) == "took_effect"

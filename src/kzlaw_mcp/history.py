@@ -14,7 +14,7 @@ from kzlaw_mcp.locate import (
     PLACEHOLDER,
     article_span,
     body_lines,
-    stage,
+    stage_between,
 )
 
 FORMAT = (
@@ -63,8 +63,10 @@ NOTE = (
 ANCHOR_NOTE = (
     "With anchor: only the versions that changed that article's text (not its footnotes), "
     "newest first; status 'added' is the version it first appeared in, and the list ends "
-    "there; 'first_version': it was already in the act's first version in the corpus, so it "
-    "is older than that date and the corpus does not say when it came in. stage 'announced': a placeholder for text that takes effect later; 'took_effect': "
+    "there; 'first_version': it was already in the act's first version in the corpus, and "
+    "the corpus has no earlier version of this act: when the act was adopted before that date "
+    "(its requisite) or replaced an earlier one (predecessors in history without anchor), the "
+    "article may be older, and the corpus does not say since when. stage 'announced': a placeholder for text that takes effect later; 'took_effect': "
     "the text replaced it. changes(act_code, sha, anchor=...) shows what one of them changed. "
     "limited: there are more, older ones: pass next_offset as offset."
 )
@@ -181,7 +183,7 @@ def _article_versions(
         parent = g.rev_parse(f"{commit['sha']}^") if old is None else None
         if old is None and not (parent and g.ls_tree(parent, f"{ref.path}/meta.yaml")):
             commit["status"] = "first_version"  # the corpus starts here, not the article
-        if st := stage([ln for ln in old or [] if ln not in (new or [])], new or []):
+        if st := stage_between(old, new):
             commit["stage"] = st
         found.append(commit)
         if old is None or len(found) >= wanted:

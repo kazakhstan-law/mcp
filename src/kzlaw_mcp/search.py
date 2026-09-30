@@ -182,7 +182,7 @@ def search(
         return _search(corpus, q, lang, scopes, n, act_code, include_repealed, only_headings)
 
     res = run(query)
-    if res["acts"]:
+    if res["acts"] or res.get("repealed"):
         return res
     extra: dict = {}
     legal = legal_wordings(query) if lang == "rus" else []

@@ -99,6 +99,12 @@ def stage(removed: list[str], added: list[str]) -> str | None:
     return None
 
 
+def stage_between(old: list[str] | None, new: list[str] | None) -> str | None:
+    """The stage of a change from body `old` to body `new`, from the lines each side lost."""
+    old, new = old or [], new or []
+    return stage([ln for ln in old if ln not in new], [ln for ln in new if ln not in old])
+
+
 def point_spans(text: str, label: str, *, within: Span | None = None) -> list[Span]:
     """Every point `label` in `text` (or inside `within`), each up to the next point or heading."""
     lines = text.split("\n")
