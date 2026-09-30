@@ -106,7 +106,9 @@ CHANGES_DESC = (
     "What one version of an act changed, compared with the previous one: the articles (or "
     "points) added, removed and modified, each with a diff and citations to both sides. Pick the "
     "version by sha (from history) or by date (the version in force then); default: the latest. "
-    "anchor narrows it to one article, in full. For an amending act's code: the acts it changed."
+    "anchor narrows it to one article, in full. total and counts cover the whole version; a "
+    "large one comes in pages: pass next_offset as offset for the next. For an amending act's "
+    "code: the acts it changed (acts_total distinct acts), paged the same way."
 )
 
 
@@ -196,13 +198,21 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
         date: str | None = None,
         lang: Lang = "rus",
         anchor: str | None = None,
+        offset: int = 0,
     ) -> dict[str, Any]:
-        args = {"act_code": act_code, "sha": sha, "date": date, "lang": lang, "anchor": anchor}
+        args = {
+            "act_code": act_code,
+            "sha": sha,
+            "date": date,
+            "lang": lang,
+            "anchor": anchor,
+            "offset": offset,
+        }
         return await gate.call(
             "changes",
             args,
             _request(ctx),
-            lambda: changes_tool(corpus, act_code, sha, date, lang, anchor),
+            lambda: changes_tool(corpus, act_code, sha, date, lang, anchor, offset),
         )
 
     @mcp.custom_route("/", methods=["GET"])

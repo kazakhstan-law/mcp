@@ -68,6 +68,44 @@ def test_amending_act_lists_the_acts_it_changed(settings):
         (PD_CODE, "2026-07-12"),
     ]
     assert res["acts_changed"][0]["title"] == "О персональных данных и их защите"
+    assert (res["acts_total"], res["entries_total"], res["next_offset"]) == (1, 2, None)
+
+
+def test_amending_act_pages(settings, monkeypatch):
+    monkeypatch.setattr("kzlaw_mcp.changes.MAX_AMENDED", 1)
+    corpus = Corpus(settings)
+    first = changes(corpus, PD_AMENDER)
+    assert (first["acts_total"], first["entries_total"], first["next_offset"]) == (1, 2, 1)
+    second = changes(corpus, PD_AMENDER, offset=first["next_offset"])
+    assert [a["date"] for a in first["acts_changed"] + second["acts_changed"]] == [
+        "2026-01-09",
+        "2026-07-12",
+    ]
+    assert second["next_offset"] is None
+
+
+def test_version_pages_cover_every_item(settings, monkeypatch):
+    corpus = Corpus(settings)
+    whole = changes(corpus, PD_CODE)
+    assert whole["total"] == len(whole["items"]) >= 2
+    assert whole["next_offset"] is None and "index" not in whole
+    monkeypatch.setattr("kzlaw_mcp.changes.MAX_ITEMS", 1)
+    seen, offset = [], 0
+    while offset is not None:
+        page = changes(corpus, PD_CODE, offset=offset)
+        assert len(page["items"]) == 1 and page["total"] == whole["total"]
+        assert page["counts"] == whole["counts"]
+        assert page["index"] == [f"{i['label']}: {i['status']}" for i in whole["items"]]
+        seen += page["items"]
+        offset = page["next_offset"]
+    assert seen == whole["items"]
+
+
+def test_version_page_ends_at_the_text_budget(settings, monkeypatch):
+    monkeypatch.setattr("kzlaw_mcp.changes.MAX_TOTAL_TEXT", 1)
+    res = changes(Corpus(settings), PD_CODE)
+    # the first item always comes, clipped if it must be; the next waits for the next page
+    assert len(res["items"]) == 1 and res["next_offset"] == 1
 
 
 def test_unknown_act_points_to_changes(settings):

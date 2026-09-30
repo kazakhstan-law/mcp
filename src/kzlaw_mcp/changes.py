@@ -20,9 +20,10 @@ from kzlaw_mcp.locate import ANCHOR_ID, ANCHOR_LINE, HEADING, POINT_START, line_
 
 ACT_DIR = re.compile(r"^.*?-[0-9]+(?=/)")
 SHA = re.compile(r"^[0-9a-f]{7,40}$")
-MAX_ITEMS = 60
+MAX_ITEMS = 40
+STATUSES = ("added", "removed", "modified")
 MAX_ITEM_TEXT = 4_000
-MAX_TOTAL_TEXT = 30_000
+MAX_TOTAL_TEXT = 20_000
 MAX_ANCHOR_TEXT = 12_000
 MAX_AMENDED = 100
 MAX_PENDING = 30
@@ -40,7 +41,9 @@ NOTE = (
     "the previous version; diff lines start with '-' (old) or '+' (new). stage 'announced': "
     "it inserted a placeholder ('вводится в действие …') whose text comes into force later; "
     "'took_effect': a placeholder was replaced by the text now in force. footnote_only: "
-    "only the footnotes changed. Cite with the item's citation (new text) or before_citation (old), as is."
+    "only the footnotes changed. Cite with the item's citation (new text) or before_citation (old), as is. "
+    "total and counts cover the whole version; a large one comes in pages: next_offset is the "
+    "offset for the next page (null on the last), index lists every item."
 )
 
 
@@ -266,7 +269,7 @@ def _title(corpus: Corpus, code: str) -> str:
     return title_of(corpus.meta(ref, corpus.head(ref.scope)), "rus")
 
 
-def amended_by(corpus: Corpus, code: str) -> dict | None:
+def amended_by(corpus: Corpus, code: str, offset: int = 0) -> dict | None:
     """An amending act, which the corpus keeps only as commit trailers: the acts it changed."""
     fmt = (
         "%x1e%H%x1f%cs%x1f%(trailers:key=Cause-Act-Requisite,valueonly,separator=%x20)%x1f"
@@ -310,21 +313,30 @@ def amended_by(corpus: Corpus, code: str) -> dict | None:
     if not acts:
         return None
     acts.sort(key=lambda a: (a["date"], a["path"]))
+    offset = max(0, int(offset))
+    page = acts[offset : offset + MAX_AMENDED]
     titles: dict[str, str] = {}
-    for a in acts[:MAX_AMENDED]:
+    for a in page:
         if a["act_code"] not in titles:
             titles[a["act_code"]] = _title(corpus, a["act_code"])
         a["title"] = titles[a["act_code"]]
+    shown = offset + len(page)
     return {
         "act_code": code,
         "amending_act": info,
-        "acts_changed": acts[:MAX_AMENDED],
-        "more": max(0, len(acts) - MAX_AMENDED),
+        "acts_total": len({a["act_code"] for a in acts}),
+        "entries_total": len(acts),
+        "offset": offset,
+        "next_offset": shown if shown < len(acts) else None,
+        "acts_changed": page,
         "note": (
             "This is an amending act: the corpus has no text of it, only the versions it made "
             "of other acts (one entry per act and date; a law taking effect in stages has "
-            "several dates). Call changes(act_code, sha) on an entry to see what it changed "
-            "there; its official text is at amending_act.link."
+            "several dates). acts_total counts the distinct acts it changed, entries_total the "
+            "entries; the entries come in pages of "
+            f"{MAX_AMENDED}, next_offset is the next page's offset (null on the last). Call "
+            "changes(act_code, sha) on an entry to see what it changed there; its official text "
+            "is at amending_act.link."
         ),
     }
 
@@ -336,6 +348,7 @@ def changes(
     date: str | None = None,
     lang: str = "rus",
     anchor: str | None = None,
+    offset: int = 0,
 ) -> dict:
     lang = check_lang(lang)
     anchor = anchor.strip() if anchor else None
@@ -352,7 +365,7 @@ def changes(
         ref = corpus.find_any(act_code)
     except InputError:
         code = str(act_code).strip()
-        if code.isdigit() and (amended := amended_by(corpus, code)):
+        if code.isdigit() and (amended := amended_by(corpus, code, offset)):
             return amended
         raise
 
@@ -403,7 +416,10 @@ def changes(
     if anchor:
         keys = [k for k in keys if k == anchor]
 
-    items, footnote_only, spent = [], [], 0
+    # Every changed item first, text attached later: the page is cut by the text budget, and
+    # the index and counts cover all of them, so the model can count and page through the rest.
+    entries: list[tuple[dict, list[str], str]] = []
+    footnote_only: list[str] = []
     for key in keys:
         a, b = before.get(key), after.get(key)
         if a and b and a.body == b.body:
@@ -412,7 +428,6 @@ def changes(
             continue
         cur = b or a
         assert cur is not None
-        budget = MAX_ANCHOR_TEXT if anchor else min(MAX_ITEM_TEXT, MAX_TOTAL_TEXT - spent)
         item: dict = {"label": cur.label, "heading": cur.heading}
         if cur.anchored:
             item["anchor"] = key
@@ -440,13 +455,6 @@ def changes(
             removed, added, lines = a.body, [], a.body
         if stage := _stage(removed, added):
             item["stage"] = stage
-        if budget > 200:
-            text, cut = _clip(lines, budget)
-            item["diff" if a and b else "text"] = text
-            item["truncated"] = cut
-            spent += len(text)
-        else:
-            item["omitted"] = "text budget spent: call changes again with this anchor"
         if b:
             url = _url(corpus, ref, new, b, new_sizes)
             item["citation"] = f"[{b.label}]({url})"
@@ -454,29 +462,45 @@ def changes(
             item["before_citation"] = (
                 f"[{a.label}, ред. до {version['date']}]({_url(corpus, ref, old, a, old_sizes)})"
             )
-        items.append(item)
+        entries.append((item, lines, "diff" if a and b else "text"))
     if old_rest != new_rest and not anchor:
         diff = [
             ln
             for ln in difflib.unified_diff(old_rest, new_rest, n=1, lineterm="")
             if not ln.startswith(("---", "+++", "@@"))
         ]
-        text, cut = _clip(diff, max(500, min(MAX_ITEM_TEXT, MAX_TOTAL_TEXT - spent)))
-        items.append(
-            {
-                "label": "вне статей",
-                "heading": None,
-                "status": "modified",
-                "diff": text,
-                "truncated": cut,
-                "note": "text outside any article (chapter headings, unnumbered provisions); "
-                "read the act to cite it",
-            }
-        )
+        item = {
+            "label": "вне статей",
+            "heading": None,
+            "status": "modified",
+            "note": "text outside any article (chapter headings, unnumbered provisions); "
+            "read the act to cite it",
+        }
+        entries.append((item, diff, "diff"))
 
-    return result | {
-        "items": items[:MAX_ITEMS],
-        "more": max(0, len(items) - MAX_ITEMS),
-        "footnote_only": footnote_only,
-        "note": NOTE,
+    offset = max(0, int(offset))
+    page: list[dict] = []
+    spent = 0
+    for item, lines, field in entries[offset:]:
+        if len(page) >= MAX_ITEMS:
+            break
+        cap = MAX_ANCHOR_TEXT if anchor else MAX_ITEM_TEXT
+        room = MAX_TOTAL_TEXT - spent
+        # A page ends before an item whose text would not fit, never inside it.
+        if page and min(len("\n".join(lines)), cap) > room:
+            break
+        text, cut = _clip(lines, min(cap, max(room, 500)))
+        page.append({**item, field: text, "truncated": cut})
+        spent += len(text)
+    shown = offset + len(page)
+    counts = {s: sum(1 for e in entries if e[0]["status"] == s) for s in STATUSES}
+    paged = {
+        "items": page,
+        "total": len(entries),
+        "counts": counts,
+        "offset": offset,
+        "next_offset": shown if shown < len(entries) else None,
     }
+    if len(page) < len(entries):
+        paged["index"] = [f"{e[0]['label']}: {e[0]['status']}" for e in entries]
+    return result | paged | {"footnote_only": footnote_only, "note": NOTE}
