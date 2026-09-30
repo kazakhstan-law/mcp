@@ -47,8 +47,8 @@ class Settings:
     trusted_proxies: frozenset[str] = field(default_factory=lambda: frozenset({"100.64.0.1"}))
     log_path: Path | None = None
     ip_salt: str = ""
-    rate_calls: int = 300
-    rate_window_s: float = 600.0
+    rate_calls: int = 50_000
+    rate_window_s: float = 86_400.0
     max_parallel: int = 6
     subprocess_timeout_s: float = 20.0
     head_ttl_s: float = 60.0
@@ -68,8 +68,8 @@ class Settings:
             trusted_proxies=frozenset(p.strip() for p in proxies.split(",") if p.strip()),
             log_path=Path(log) if log else None,
             ip_salt=env.get("KZLAW_IP_SALT", ""),
-            rate_calls=int(env.get("KZLAW_RATE_CALLS", "300")),
-            rate_window_s=float(env.get("KZLAW_RATE_WINDOW_S", "600")),
+            rate_calls=int(env.get("KZLAW_RATE_CALLS", "50000")),
+            rate_window_s=float(env.get("KZLAW_RATE_WINDOW_S", "86400")),
             max_parallel=int(env.get("KZLAW_MAX_PARALLEL", "6")),
             subprocess_timeout_s=float(env.get("KZLAW_SUBPROCESS_TIMEOUT_S", "20")),
             head_ttl_s=float(env.get("KZLAW_HEAD_TTL_S", "60")),
