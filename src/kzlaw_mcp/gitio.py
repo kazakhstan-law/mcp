@@ -108,5 +108,9 @@ class Git:
             hits.append((path, int(lineno), text))
         return hits
 
+    def count(self, *args: str) -> int:
+        """The number of commits `git rev-list` lists for `args`."""
+        return int(self._git("rev-list", "--count", *args).text.strip() or 0)
+
     def log(self, *args: str) -> str:
         return self._git("log", *args, max_bytes=1_000_000).text

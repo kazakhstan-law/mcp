@@ -99,7 +99,8 @@ HISTORY_DESC = (
     "code, adoption date); changes(act_code, sha) shows what a version changed. With "
     "phrase, only versions that added or removed that exact, case-sensitive text; the oldest is "
     "when it entered the law. predecessors: the repealed acts it replaced (an earlier code), "
-    "with their versions."
+    "with their versions. Newest first, up to limit (max 50); total counts them all. For more: "
+    "offset=next_offset, or since=YYYY-MM-DD for the versions from a date."
 )
 
 CHANGES_DESC = (
@@ -183,11 +184,25 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
 
     @mcp.tool(description=HISTORY_DESC)
     async def history(
-        ctx: Context, act_code: str, phrase: str | None = None, limit: int = 30
+        ctx: Context,
+        act_code: str,
+        phrase: str | None = None,
+        limit: int = 30,
+        offset: int = 0,
+        since: str | None = None,
     ) -> dict[str, Any]:
-        args = {"act_code": act_code, "phrase": phrase, "limit": limit}
+        args = {
+            "act_code": act_code,
+            "phrase": phrase,
+            "limit": limit,
+            "offset": offset,
+            "since": since,
+        }
         return await gate.call(
-            "history", args, _request(ctx), lambda: history_tool(corpus, act_code, phrase, limit)
+            "history",
+            args,
+            _request(ctx),
+            lambda: history_tool(corpus, act_code, phrase, limit, offset, since),
         )
 
     @mcp.tool(description=CHANGES_DESC)

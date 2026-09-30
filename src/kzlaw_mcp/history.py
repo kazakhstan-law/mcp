@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, title_of
@@ -41,7 +42,10 @@ NOTE = (
     "text that comes later. changes(act_code, sha) shows what a version changed. With phrase: only versions that added or removed that "
     "exact, case-sensitive text; the oldest is when it entered the law. predecessors are the "
     "repealed acts this one replaced (e.g. an earlier code), newest first, with their own "
-    "versions: the history continues there, and at_date reads their text on dates before."
+    "versions: the history continues there, and at_date reads their text on dates before. "
+    "total counts all versions (from since, when given); limited: there are more, older ones: "
+    "pass next_offset as offset for the next page, or since=YYYY-MM-DD to keep only versions "
+    "from that date."
 )
 
 
@@ -74,10 +78,19 @@ def parse_log(out: str, corpus: Corpus, scope: str) -> list[dict]:
     return commits
 
 
-def _versions(corpus: Corpus, ref: ActRef, phrase: str | None, limit: int) -> dict:
+def _versions(
+    corpus: Corpus,
+    ref: ActRef,
+    phrase: str | None,
+    limit: int,
+    offset: int = 0,
+    since: str | None = None,
+) -> dict:
     g = corpus.git(ref.scope)
     head = corpus.head(ref.scope)
-    args = ["-n", str(limit), f"--format={FORMAT}"]
+    # Corpus commits are dated UTC midnight, so the one on `since` itself is kept.
+    window = [f"--since={since}T00:00:00Z"] if since else []
+    args = ["-n", str(limit), "--skip", str(offset), f"--format={FORMAT}", *window]
     if phrase:
         args.append(f"-S{phrase}")
     commits = parse_log(g.log(*args, head, "--", ref.path), corpus, ref.scope)
@@ -86,20 +99,36 @@ def _versions(corpus: Corpus, ref: ActRef, phrase: str | None, limit: int) -> di
         corpus,
         ref.scope,
     )
-    return {
-        "commits": commits,
-        "first_version": created[-1] if created else None,
-        "limited": len(commits) == limit,
-    }
+    limited = len(commits) == limit
+    out: dict = {"commits": commits, "first_version": created[-1] if created else None}
+    if not phrase:  # counting -S matches would run the whole pickaxe again
+        out["total"] = total = g.count(*window, head, "--", ref.path)
+        limited = offset + len(commits) < total
+    return out | {"limited": limited, "next_offset": offset + limit if limited else None}
 
 
-def history(corpus: Corpus, act_code: str, phrase: str | None = None, limit: int = 30) -> dict:
+def history(
+    corpus: Corpus,
+    act_code: str,
+    phrase: str | None = None,
+    limit: int = 30,
+    offset: int = 0,
+    since: str | None = None,
+) -> dict:
     ref = corpus.find_any(act_code)
     phrase = phrase.strip() if phrase else None
     if phrase is not None and not 3 <= len(phrase) <= 200:
         raise InputError("phrase must be 3..200 characters of the act's exact wording")
+    if since is not None:
+        try:
+            if len(since) != 10:
+                raise ValueError
+            dt.date.fromisoformat(since)
+        except (TypeError, ValueError):
+            raise InputError("since must be YYYY-MM-DD") from None
     limit = max(1, min(int(limit), MAX_LIMIT))
-    own = _versions(corpus, ref, phrase, limit)
+    offset = max(0, int(offset))
+    own = _versions(corpus, ref, phrase, limit, offset, since)
     replaced = corpus.replaced(ref.code)
 
     predecessors, chain, seen = [], [ref], {ref.code}
@@ -116,14 +145,14 @@ def history(corpus: Corpus, act_code: str, phrase: str | None = None, limit: int
                     "requisite": pred.requisite,
                     "link": pred.link,
                     "replaced_by": pred.successor,
-                    **_versions(corpus, pred.ref, phrase, limit),
+                    **_versions(corpus, pred.ref, phrase, limit, offset, since),
                 }
             )
 
     # The oldest match across the chain: a phrase carried over from a repealed code entered the
     # law when it entered that code, not when the successor was enacted with it.
     introduced = None
-    if phrase:
+    if phrase and since is None:
         runs = [own, *predecessors]
         if not any(r["limited"] for r in runs):
             found = [c for r in runs for c in r["commits"]]

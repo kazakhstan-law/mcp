@@ -14,6 +14,27 @@ def test_history_lists_amending_acts(settings):
     assert res["first_version"]["date"] == "2022-01-10"
 
 
+def test_history_pages_and_since(settings):
+    corpus = Corpus(settings)
+    first = history(corpus, KOAP_CODE, limit=1)
+    assert (first["total"], first["limited"], first["next_offset"]) == (2, True, 1)
+    second = history(corpus, KOAP_CODE, limit=1, offset=1)
+    assert [c["date"] for c in second["commits"]] == ["2022-01-10"]
+    assert (second["limited"], second["next_offset"]) == (False, None)
+    recent = history(corpus, KOAP_CODE, since="2024-10-03")  # the day itself counts
+    assert [c["date"] for c in recent["commits"]] == ["2024-10-03"] and recent["total"] == 1
+
+
+def test_since_leaves_introduced_unknown(settings):
+    res = history(Corpus(settings), PDD_CODE, phrase="электрических самокатов", since="2023-01-01")
+    assert res["commits"] and res["introduced"] is None
+
+
+def test_bad_since(settings):
+    with pytest.raises(InputError):
+        history(Corpus(settings), KOAP_CODE, since="2024")
+
+
 def test_phrase_pinpoints_when_it_appeared(settings):
     res = history(Corpus(settings), PDD_CODE, phrase="электрических самокатов")
     assert [c["date"] for c in res["commits"]] == ["2023-08-31"]
