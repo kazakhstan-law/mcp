@@ -1,4 +1,5 @@
-"""Per-client rate limit, a global cap on concurrent tool work, and a JSONL call log."""
+"""Per-client rate limit, a global cap on concurrent tool work, a JSONL call log and the
+feedback log beside it."""
 
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import anyio
 import anyio.to_thread
@@ -113,6 +114,10 @@ def outcome(tool: str, result: object) -> dict:
     return out
 
 
+FeedbackKind = Literal["not_found", "wrong", "missing", "other"]
+FEEDBACK_MAX = 2000  # characters of one message
+
+
 class Gate:
     def __init__(self, settings: Settings, clock: Callable[[], float] = time.monotonic) -> None:
         if settings.log_path is not None and not settings.ip_salt:
@@ -121,6 +126,8 @@ class Gate:
         self.settings = settings
         self.limiter = RateLimiter(settings.rate_calls, settings.rate_window_s, clock)
         self.log = CallLog(settings.log_path, settings.ip_salt)
+        feedback_path = settings.log_path.with_name("feedback.jsonl") if settings.log_path else None
+        self.feedback_log = CallLog(feedback_path, settings.ip_salt)
         self._capacity: anyio.CapacityLimiter | None = None
 
     async def call(
@@ -150,6 +157,25 @@ class Gate:
         size = len(json.dumps(result, ensure_ascii=False))
         self.log.record(**base, ok=True, size=size, ms=_ms(started), **outcome(tool, result))
         return result
+
+    def feedback(
+        self, request: Request | None, kind: str, message: str, act_code: str | None
+    ) -> dict:
+        """One report from the model, to feedback.jsonl: the call log keeps only its length."""
+        message = message.strip()
+        if not message:
+            raise InputError("message is empty: say what was asked, searched and missing")
+        if self.feedback_log.path is None:
+            return {"recorded": False, "reason": "feedback is not stored on this server"}
+        ip, _ = client_ip(request, self.settings.trusted_proxies)
+        self.feedback_log.record(
+            ip=ip,
+            client=client_token(request),
+            kind=kind,
+            act_code=(act_code or None) and act_code[:40],
+            message=message[:FEEDBACK_MAX],
+        )
+        return {"recorded": True, "truncated": len(message) > FEEDBACK_MAX}
 
 
 def _ms(started: float) -> int:

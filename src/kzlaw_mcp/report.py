@@ -124,18 +124,30 @@ def _where(row: dict) -> str:
     return ", ".join(bits)
 
 
-def report(rows: list[dict], top: int = 20, show_chains: int = 15) -> str:
+def report(
+    rows: list[dict], top: int = 20, show_chains: int = 15, feedback: list[dict] | None = None
+) -> str:
     out: list[str] = []
 
     def section(title: str) -> None:
         out.extend(["", f"## {title}"])
 
-    if not rows:
+    if not rows and not feedback:
         return "no calls in the period"
+    if feedback:
+        section(f"Feedback ({len(feedback)}), sent by the models")
+        for f in feedback:
+            act = f" act {f['act_code']}" if f.get("act_code") else ""
+            msg = " ".join(str(f.get("message", "")).split())
+            out.append(f"{f['ts'][:16]}  {f.get('kind', '?')}{act}  [{client_of(f.get('client'))}]")
+            out.append(f"      {msg}")
+    if not rows:
+        return "\n".join(out).strip() + "\n"
     first, last = rows[0]["_ts"], rows[-1]["_ts"]
-    out.append(
+    out.insert(
+        0,
         f"{len(rows)} calls, {len({r.get('ip') for r in rows})} IPs, "
-        f"{first:%Y-%m-%d %H:%M} .. {last:%Y-%m-%d %H:%M} UTC"
+        f"{first:%Y-%m-%d %H:%M} .. {last:%Y-%m-%d %H:%M} UTC",
     )
 
     section("Per day (UTC)")
@@ -240,17 +252,22 @@ def main(argv: list[str] | None = None) -> None:
     ns = parser.parse_args(argv)
     if not ns.log:
         parser.error("give the log path or set KZLAW_LOG_PATH")
-    rows = load(Path(ns.log))
     since = ns.since
     if ns.days:
         since = (datetime.now(UTC).date() - timedelta(days=ns.days - 1)).isoformat()
-    rows = [
-        r
-        for r in rows
-        if (not since or r["ts"][:10] >= since) and (not ns.until or r["ts"][:10] <= ns.until)
-    ]
-    rows.sort(key=lambda r: r["_ts"])
-    sys.stdout.write(report(rows, ns.top, ns.chains))
+
+    def period(rows: list[dict]) -> list[dict]:
+        kept = [
+            r
+            for r in rows
+            if (not since or r["ts"][:10] >= since) and (not ns.until or r["ts"][:10] <= ns.until)
+        ]
+        return sorted(kept, key=lambda r: r["_ts"])
+
+    log = Path(ns.log)
+    notes = log.with_name("feedback.jsonl")  # written by the feedback tool, beside the log
+    feedback = period(load(notes)) if notes.exists() else []
+    sys.stdout.write(report(period(load(log)), ns.top, ns.chains, feedback))
 
 
 if __name__ == "__main__":

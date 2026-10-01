@@ -119,3 +119,28 @@ def test_outcome_never_raises_on_odd_results():
     assert outcome("search", None) == {}
     assert outcome("search", {"acts": None, "rewritten": "x"}) == {"acts": 0, "hits": 0}
     assert outcome("search", {"acts": ["not a dict"]})["hits"] == 0
+
+
+@pytest.mark.anyio
+async def test_feedback_goes_to_its_own_file(settings):
+    gate = Gate(settings)
+    r = req("9.9.9.9")
+    r.headers["user-agent"] = "openai-mcp/1.0"
+    out = gate.feedback(r, "not_found", "  нет ст. 999 КоАП " + "я" * 3000, "123")
+    assert out == {"recorded": True, "truncated": True}
+    [row] = [
+        json.loads(x)
+        for x in settings.log_path.with_name("feedback.jsonl").read_text().splitlines()
+    ]
+    assert row["kind"] == "not_found" and row["act_code"] == "123" and row["client"] == "openai-mcp"
+    assert row["message"].startswith("нет ст. 999") and len(row["message"]) == 2000
+    assert row["ip"] != "9.9.9.9"
+    with pytest.raises(InputError, match="empty"):
+        gate.feedback(r, "other", "   ", None)
+
+
+def test_feedback_without_a_log_is_not_stored(settings):
+    from dataclasses import replace
+
+    out = Gate(replace(settings, log_path=None)).feedback(None, "other", "x", None)
+    assert out["recorded"] is False

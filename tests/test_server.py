@@ -34,14 +34,21 @@ def server_url(settings):
 async def test_tools_over_streamable_http(server_url, mode):
     async with Client(f"{server_url}/mcp", mode=mode) as client:
         assert "citation" in (client.instructions or "")
-        names = {t.name for t in await client.list_tools()}
-        assert names == {"search", "read", "at_date", "history", "changes"}
+        tools = {t.name: t for t in await client.list_tools()}
+        readers = {"search", "read", "at_date", "history", "changes"}
+        assert set(tools) == readers | {"feedback"}
+        # unmarked tools make ChatGPT ask the user before every call
+        assert all(tools[n].annotations.read_only_hint is True for n in readers)
+        assert tools["feedback"].annotations.read_only_hint is False
+        assert tools["feedback"].annotations.destructive_hint is False
         res = await client.call_tool("search", {"query": "превышение установленной скорости"})
         assert res.structured_content is not None
         assert res.structured_content["acts"][0]["act_code"] == KOAP_CODE
         bad = await client.call_tool_mcp("read", {"act_code": "../../etc"})
         assert bad.is_error
         assert bad.content[0].text.startswith("act_code")
+        sent = await client.call_tool("feedback", {"kind": "not_found", "message": "нет ничего"})
+        assert sent.structured_content == {"recorded": True, "truncated": False}
 
 
 def test_landing_and_health(server_url):

@@ -62,3 +62,24 @@ def test_query_key_and_clients():
         client_of("Claude-User") == "claude" and client_of("python-httpx") == "other:python-httpx"
     )
     assert client_of(None) == "?"
+
+
+def test_feedback_comes_first(tmp_path, capsys):
+    from kzlaw_mcp.report import main
+
+    write(tmp_path, [row("10:00", query="x", hits=1, acts=1)])
+    note = {
+        "ts": "2026-10-01T10:01:00+00:00",
+        "kind": "wrong",
+        "act_code": "123",
+        "client": "Claude-User",
+        "message": "ставка\nустарела",
+    }
+    (tmp_path / "feedback.jsonl").write_text(json.dumps(note, ensure_ascii=False) + "\n")
+    main([str(tmp_path / "calls.jsonl")])
+    text = capsys.readouterr().out
+    assert text.startswith("1 calls")
+    assert "## Feedback (1)" in text and "wrong act 123  [claude]" in text
+    assert "ставка устарела" in text
+    assert text.index("## Feedback") < text.index("## Per day")
+    assert report([], feedback=[load(tmp_path / "feedback.jsonl")[0]]).startswith("## Feedback")

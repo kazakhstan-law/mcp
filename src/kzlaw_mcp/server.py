@@ -1,4 +1,5 @@
-"""FastMCP over Streamable HTTP: five read-only tools, a landing page and a health check."""
+"""FastMCP over Streamable HTTP: five read-only tools, a feedback tool, a landing page and a
+health check."""
 
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from starlette.responses import JSONResponse, PlainTextResponse
 from kzlaw_mcp.changes import changes as changes_tool
 from kzlaw_mcp.config import Settings
 from kzlaw_mcp.corpus import Corpus, InputError
-from kzlaw_mcp.gate import Gate
+from kzlaw_mcp.gate import FEEDBACK_MAX, FeedbackKind, Gate
 from kzlaw_mcp.history import history as history_tool
 from kzlaw_mcp.passages import at_date as at_date_tool
 from kzlaw_mcp.passages import read as read_tool
@@ -69,6 +70,11 @@ points each with its citation, then, if the cited text changed recently, "изм
 DD.MM.YYYY <amending act>" from history.
 6. Questions in Kazakh: search and read with lang="kaz".
 7. Do not add legal disclaimers to answers.
+8. Call feedback when nothing was found after retrying other wording, when the user says an \
+answer or a text is wrong or something is missing, or when asked to pass something on to the \
+developers ("передай разработчикам"). Write what was asked, what you searched or read, and \
+what was missing or wrong. No names, phone numbers, ИИН or other personal data: describe the \
+situation, not the person.
 """
 
 LANDING = """\
@@ -143,6 +149,17 @@ CHANGES_DESC = (
     "summary=true: the list only, no text or diffs."
 )
 
+FEEDBACK_DESC = (
+    "Tell the developers of this server what went wrong; it is read by people. kind: not_found "
+    "(searched with several wordings, found nothing), wrong (the user says an answer or a text "
+    "is wrong), missing (an act, edition or date is not in the corpus), other. message: what "
+    "was asked, the queries and tools tried, what was missing or wrong; no personal data. "
+    f"act_code: the act concerned, if any. Up to {FEEDBACK_MAX} characters. Changes no text."
+)
+# The corpus is a closed set of texts: nothing here reaches the outside world.
+READ_ONLY = {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False}
+WRITES = {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}
+
 
 def _request() -> Request | None:
     try:
@@ -162,7 +179,7 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
         except InputError as exc:  # the message is for the model: no "Error calling tool" prefix
             raise ToolError(str(exc)) from exc
 
-    @mcp.tool(description=SEARCH_DESC)
+    @mcp.tool(description=SEARCH_DESC, annotations=READ_ONLY)
     async def search(
         query: str,
         lang: Lang = "rus",
@@ -189,7 +206,7 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             ),
         )
 
-    @mcp.tool(description=READ_DESC)
+    @mcp.tool(description=READ_DESC, annotations=READ_ONLY)
     async def read(
         act_code: str,
         lang: Lang = "rus",
@@ -199,7 +216,7 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
         args = {"act_code": act_code, "lang": lang, "anchor": anchor, "point": point}
         return await call("read", args, lambda: read_tool(corpus, act_code, lang, anchor, point))
 
-    @mcp.tool(description=AT_DATE_DESC)
+    @mcp.tool(description=AT_DATE_DESC, annotations=READ_ONLY)
     async def at_date(
         act_code: str,
         date: str,
@@ -214,7 +231,7 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             lambda: at_date_tool(corpus, act_code, date, lang, anchor, point),
         )
 
-    @mcp.tool(description=HISTORY_DESC)
+    @mcp.tool(description=HISTORY_DESC, annotations=READ_ONLY)
     async def history(
         act_code: str,
         phrase: str | None = None,
@@ -237,7 +254,7 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
             lambda: history_tool(corpus, act_code, phrase, limit, offset, since, anchor),
         )
 
-    @mcp.tool(description=CHANGES_DESC)
+    @mcp.tool(description=CHANGES_DESC, annotations=READ_ONLY)
     async def changes(
         act_code: str,
         sha: str | None = None,
@@ -282,6 +299,14 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
                 summary,
             ),
         )
+
+    @mcp.tool(description=FEEDBACK_DESC, annotations=WRITES)
+    async def feedback(
+        kind: FeedbackKind, message: str, act_code: str | None = None
+    ) -> dict[str, Any]:
+        args = {"kind": kind, "act_code": act_code, "length": len(message)}
+        request = _request()
+        return await call("feedback", args, lambda: gate.feedback(request, kind, message, act_code))
 
     @mcp.custom_route("/", methods=["GET"])
     async def landing(request: Request) -> PlainTextResponse:
