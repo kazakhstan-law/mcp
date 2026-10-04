@@ -3,3 +3,8 @@ __pycache__/
 .env
 data/
 *.egg-info/
+
+# Project memory lives in the agent-memory repo (~/.claude/memory/projects/
+# kazakhstan-law/mcp/); .claude/memory is a symlink to it. No trailing slash: a
+# `/`-suffixed pattern does not match a symlink.
+.claude/memory
