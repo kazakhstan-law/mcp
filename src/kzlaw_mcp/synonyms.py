@@ -95,23 +95,44 @@ _COMMON = (
 MAX_RELAXED = 4
 
 
+# Regex syntax whose digits and letters are not the query's words: "{0,20}", "[0-9]", "\d".
+_SYNTAX = re.compile(r"\{[^}]*\}|\[[^\]]*\]|\\.")
+# Kept whole, not cut to a stem: a number ("ставка 3 процент" is not "ставка 4 процент") and
+# an abbreviation too short to be a word ("ИПН", "НДС"). Matched as whole tokens.
+_EXACT = re.compile(r"\b(?:\d+|[^\W\d_]{2,3})\b")
+_EXACT_TOKEN = re.compile(r"^(?:\d+|[^\W\d_]{2,3})$")
+
+
+def _exact(text: str) -> list[str]:
+    found = (t for t in _EXACT.findall(text) if t.isdigit() or t.isupper())
+    return list(dict.fromkeys(t.lower() for t in found))
+
+
 def relaxed(query: str) -> list[list[str]]:
-    """Stem sets to retry a phrase that found nothing with: its longest words' stems, in any
-    order, in one paragraph; then one stem fewer. Empty for a query of fewer than two words."""
-    words = [w for w in _WORD.findall(_ESCAPE.sub(" ", query.lower())) if not w.startswith(_COMMON)]
+    """Stem sets to retry a phrase that found nothing with: its numbers and abbreviations,
+    whole, and its longest words' stems, in any order, in one paragraph; then one stem fewer.
+    Empty for a query of fewer than two such tokens."""
+    text = _SYNTAX.sub(" ", query)
+    # In "(3 063|3 180) тенге" the numbers are alternatives: requiring them all finds nothing.
+    exact = [] if "|" in text else _exact(text)[:MAX_RELAXED]
+    words = [w for w in _WORD.findall(text.lower()) if not w.startswith(_COMMON)]
     picked: list[str] = []
     for w in sorted(dict.fromkeys(words), key=len, reverse=True):
         stem = w[: min(6, max(4, len(w) - 2))]
         same = [i for i, p in enumerate(picked) if p.startswith(stem) or stem.startswith(p)]
         if same:  # "налоговые" and "налогу": one stem, the shorter, covers both
             picked[same[0]] = min(picked[same[0]], stem, key=len)
-        elif len(picked) < MAX_RELAXED:
+        elif len(exact) + len(picked) < MAX_RELAXED:
             picked.append(stem)
-    if len(picked) < 2:
+    if len(exact) + len(picked) < 2:
         return []
-    return [picked] + ([picked[:-1]] if len(picked) >= 3 else [])
+    # One stem fewer drops a word, never a number: without it the retry is another question.
+    fewer = [exact + picked[:-1]] if len(picked) >= 2 and len(exact) + len(picked) >= 3 else []
+    return [exact + picked] + fewer
 
 
 def any_order(stems: list[str]) -> str:
-    """A regex for all of `stems` in one line, in any order: ripgrep has no lookahead."""
-    return "|".join(".*".join(re.escape(s) for s in p) for p in permutations(stems))
+    """A regex for all of `stems` in one line, in any order: ripgrep has no lookahead. A
+    number or an abbreviation matches only as a whole token: "3" not inside "13" or "2023"."""
+    parts = [rf"\b{s}\b" if _EXACT_TOKEN.match(s) else re.escape(s) for s in stems]
+    return "|".join(".*".join(p) for p in permutations(parts))
