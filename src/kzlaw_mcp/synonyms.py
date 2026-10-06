@@ -44,6 +44,7 @@ EVERYDAY: list[tuple[str, list[str]]] = [
     (r"коммуналк", [r"коммунальн\w* услуг\w*"]),
     (r"мусор", [r"отход\w*", r"санитарн\w* очистк\w*"]),
     (r"\bшум", [r"тишин\w*"]),
+    (r"самогон", [r"производств\w* .*алкогольн\w* продукци\w*", r"этилов\w* спирт\w*"]),
 ]
 _COMPILED = [(re.compile(p), legal) for p, legal in EVERYDAY]
 _ESCAPE = re.compile(r"\\.")

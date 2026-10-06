@@ -10,6 +10,14 @@ def test_relaxed_stems():
     assert any_order(["абвг", "деёж"]) == "абвг.*деёж|деёж.*абвг"
 
 
+def test_moonshine_is_alcohol_production():
+    from kzlaw_mcp.synonyms import legal_wordings
+
+    # Prod: "самогоноварение" in КоАП found nothing; КоАП ст.282 says "производства ...
+    # этилового спирта и алкогольной продукции".
+    assert legal_wordings("самогоноварение")[0] == r"производств\w* .*алкогольн\w* продукци\w*"
+
+
 def test_relaxed_keeps_numbers_and_abbreviations():
     import re
 
