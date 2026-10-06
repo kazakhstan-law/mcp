@@ -72,3 +72,45 @@ def test_a_section_edited_as_it_moved_shows_only_its_edits():
     ]
     assert out[0][2] == ["192. Участники колонны."]
     assert [ln for ln in out[1][2] if ln[:1] in "+-"] == ["-4.1 «Знак 4».", "+4.1 «Знак четыре»."]
+
+
+def test_a_renumbered_point_of_several_lines_is_not_a_move():
+    from kzlaw_mcp.changes import _readable
+
+    rest = ["1) пешеходам;", "2) велосипедистам;", "3) иным лицам."]
+    old, new = ["5. Водитель уступает дорогу:", *rest], ["6. Водитель уступает дорогу:", *rest]
+    entries = [
+        ("p5", item("п. 5", "removed"), old, "text"),
+        ("p6", item("п. 6", "added") | {"citation": "[п. 6](new)"}, new, "text"),
+    ]
+    out, moved = _readable(entries)
+    assert moved == [] and [(e[1]["label"], e[1]["status"]) for e in out] == [
+        ("п. 6", "renumbered")
+    ]
+
+
+def test_a_moved_item_is_cited_on_both_sides():
+    signs = [f"{n}.1 «Знак {n}»." for n in range(10)]
+    edited = [*signs[:4], "4.1 «Знак четыре».", *signs[5:]]
+    src = item("п. 180", "modified") | {"before_citation": "[п. 180, ред. до](old)"}
+    dst = item("п. 192", "added") | {"citation": "[п. 192](new)"}
+    entries = [
+        ("p180", src, [" 180. Текст.", *(f"-{ln}" for ln in signs)], "diff"),
+        ("p192", dst, ["192. Участники.", *edited], "text"),
+    ]
+    out, _ = moves(entries)
+    (moved,) = [e[1] for e in out if e[1]["status"] == "moved"]
+    assert (moved["citation"], moved["before_citation"]) == (
+        "[п. 192](new)",
+        "[п. 180, ред. до](old)",
+    )
+
+
+def test_three_lines_scattered_over_a_long_article_are_not_its_source():
+    common = ["1) пешеходам;", "2) велосипедистам;", "3) иным лицам."]
+    spread = [common[0], *(f"текст {n}" for n in range(10)), common[1], "ещё", common[2]]
+    entries = [
+        ("p1", item("п. 1", "modified"), [" 1. Текст.", *(f"-{ln}" for ln in common)], "diff"),
+        ("p9", item("п. 9", "added"), ["9. Новое.", *spread], "text"),
+    ]
+    assert moves(entries)[1] == []

@@ -18,13 +18,14 @@ from dataclasses import dataclass
 from kzlaw_mcp import diffs
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, locator_label, title_of
 from kzlaw_mcp.gitio import NULL_BLOB
-from kzlaw_mcp.history import FORMAT, parse_log
+from kzlaw_mcp.history import CAUSE_NUMBER, FORMAT, parse_log
 from kzlaw_mcp.locate import (
     ANCHOR_ID,
     ANCHOR_LINE,
     HEADING,
     PLACEHOLDER,
     POINT_START,
+    act_number,
     footnote_acts,
     line_context,
     stage,
@@ -524,12 +525,14 @@ def _announces(entry: Entry) -> bool:
     return bool(added) and not gone and all(HEADING.match(ln) or not ln.strip() for ln in added)
 
 
-def touched(corpus: Corpus, ref: ActRef, sha: str, lang: str = "rus") -> dict:
-    """The articles one version changed (anchors), and whether it only inserted placeholders.
+def touched(corpus: Corpus, ref: ActRef, version: dict, lang: str = "rus") -> dict:
+    """The articles one version changed (anchors), whether it only inserted placeholders, and
+    the amending acts its footnotes name when they are not the version's own.
 
     Empty for a version the act's previous one does not precede (its first, or its repeal).
     """
     g = corpus.git(ref.scope)
+    sha = version["sha"]
     old = g.rev_parse(f"{sha}^")
     meta = f"{ref.path}/meta.yaml"
     if old is None or not g.ls_tree(old, meta) or not g.ls_tree(sha, meta):
@@ -546,13 +549,14 @@ def touched(corpus: Corpus, ref: ActRef, sha: str, lang: str = "rus") -> dict:
         out["touched_more"] = len(anchors) - MAX_TOUCHED
     if unanchored := sum("anchor" not in item for _, item, _, _ in entries):
         out["touched_unanchored"] = unanchored
-    return out
+    attribution = _attribution(version, entries)
+    return out | {k: v for k, v in attribution.items() if k != "attribution_note"}
 
 
 def _readable(entries: list[Entry]) -> tuple[list[Entry], list[dict]]:
     """Moves and renumbering taken out, long paragraphs diffed by words."""
-    entries, moved = diffs.moves(entries)
-    entries = diffs.renumbered(entries)
+    # Renumbered first: a renumbered point's lines would otherwise read as a move.
+    entries, moved = diffs.moves(diffs.renumbered(entries))
     return [
         (k, i, diffs.word_diffs(ln) if f == "diff" else ln, f) for k, i, ln, f in entries
     ], moved
@@ -563,16 +567,13 @@ def _gained_acts(a: Segment | None, b: Segment) -> list[dict]:
     return [{"date": d, "number": n} for d, n in footnote_acts(b.footnotes) if (d, n) not in old]
 
 
-CAUSE_NUMBER = re.compile(r"№\s*([0-9]+(?:-[IVXL]+)?)")
-
-
 def _attribution(version: dict, entries: list[Entry]) -> dict:
     """cause_acts when the footnotes name other acts than the version's, or more than one."""
     acts = {
         (c["date"], c["number"]): c for _, item, _, _ in entries for c in item.get("cause_acts", [])
     }
     m = CAUSE_NUMBER.search(version.get("cause_act_requisite") or "")
-    if not acts or (m and {n for _, n in acts} == {m.group(1)}):
+    if not acts or (m and {n for _, n in acts} == {act_number(m.group(1))}):
         return {}
     return {
         "cause_acts": [acts[k] for k in sorted(acts)],

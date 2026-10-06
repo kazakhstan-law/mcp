@@ -46,6 +46,7 @@ def _removed_runs(entry: Entry) -> list[list[tuple[int, str]]]:
 
 
 MOVE_SHARE = 0.7  # of a removed run's lines found among another entry's added lines
+MAX_SPREAD = 1.5  # the region they are found in, at most this many times the run
 
 
 def _region(needle: list[str], hay: list[tuple[int, str]]) -> list[tuple[int, str]] | None:
@@ -54,7 +55,9 @@ def _region(needle: list[str], hay: list[tuple[int, str]]) -> list[tuple[int, st
     pos = [p for p, (_, t) in enumerate(hay) if t in want]
     if len(pos) < MOVE_SHARE * len(needle):
         return None
-    return hay[pos[0] : pos[-1] + 1]
+    region = hay[pos[0] : pos[-1] + 1]
+    # Three generic lines scattered over a long new article are not that article's source.
+    return region if len(region) <= MAX_SPREAD * len(needle) else None
 
 
 def _changed(lines: list[str], field: str) -> bool:
@@ -99,8 +102,13 @@ def moves(entries: list[Entry]) -> tuple[list[Entry], list[dict]]:
                         "heading": first[:120],
                         "status": "moved",
                         "note": "text moved from one article to another; the diff is what "
-                        "the move also changed in it",
+                        "the move also changed in it. citation: where it is now; "
+                        "before_citation: where it was",
                     }
+                    # The text is cited where it stands now and where it stood before.
+                    for side, field in ((dst, "citation"), (src, "before_citation")):
+                        if field in side[1]:
+                            item[field] = side[1][field]
                     edits.setdefault(y, []).append(("", item, diff, "diff"))
                 found.append(move | {"starts": first[:120]})
                 break
