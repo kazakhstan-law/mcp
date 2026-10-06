@@ -24,6 +24,7 @@ from kzlaw_mcp.locate import (
     HEADING,
     PLACEHOLDER,
     POINT_START,
+    footnote_acts,
     line_context,
     stage,
     stage_between,
@@ -51,7 +52,8 @@ NOTE = (
     "the previous version; diff lines start with '-' (old) or '+' (new). stage 'announced': "
     "it inserted a placeholder ('вводится в действие …') whose text comes into force later; "
     "'took_effect': a placeholder was replaced by the text now in force. footnote_only: "
-    "only the footnotes changed. Cite with the item's citation (new text) or before_citation (old), as is. "
+    "only the footnotes changed. cause_acts: the amending acts the item's footnote gained, "
+    "the act that made that change. Cite with the item's citation (new text) or before_citation (old), as is. "
     "total and counts cover the whole version; a large one comes in pages: next_offset is the "
     "offset for the next page (null on the last), index lists every item."
 )
@@ -476,6 +478,9 @@ def _compare(
             removed, added, lines = a.body, [], a.body
         if st := stage(removed, added):
             item["stage"] = st
+        # The act a footnote gained here made this change: a version can carry several acts.
+        if b and (new_acts := _gained_acts(a, b)):
+            item["cause_acts"] = new_acts
         if b:
             url = _url(corpus, ref, new, b, new_sizes)
             item["citation"] = f"[{b.label}]({url})"
@@ -498,6 +503,31 @@ def _compare(
         }
         entries.append(("", item, diff, "diff"))
     return entries, footnote_only
+
+
+def _gained_acts(a: Segment | None, b: Segment) -> list[dict]:
+    old = set(footnote_acts(a.footnotes)) if a else set()
+    return [{"date": d, "number": n} for d, n in footnote_acts(b.footnotes) if (d, n) not in old]
+
+
+CAUSE_NUMBER = re.compile(r"№\s*([0-9]+(?:-[IVXL]+)?)")
+
+
+def _attribution(version: dict, entries: list[Entry]) -> dict:
+    """cause_acts when the footnotes name other acts than the version's, or more than one."""
+    acts = {
+        (c["date"], c["number"]): c for _, item, _, _ in entries for c in item.get("cause_acts", [])
+    }
+    m = CAUSE_NUMBER.search(version.get("cause_act_requisite") or "")
+    if not acts or (m and {n for _, n in acts} == {m.group(1)}):
+        return {}
+    return {
+        "cause_acts": [acts[k] for k in sorted(acts)],
+        "attribution_ambiguous": True,
+        "attribution_note": "this version's footnotes name other amending acts than version.act, "
+        "or several: the git version records one act per day, but several took effect together. "
+        "Name the act from the item's cause_acts (its footnote), not version.act",
+    }
 
 
 def _page(entries: list[Entry], offset: int, one_anchor: bool, summary: bool) -> dict:
@@ -738,6 +768,7 @@ def changes(
     note = NOTE + (SUMMARY_NOTE if summary else "")
     return (
         result
+        | _attribution(version, entries)
         | _page(entries, offset, one_anchor, summary)
         | {"footnote_only": footnote_only, "note": note}
     )

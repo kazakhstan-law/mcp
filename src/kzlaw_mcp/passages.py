@@ -8,7 +8,6 @@ never by a remembered part name.
 from __future__ import annotations
 
 import datetime as dt
-import re
 
 from kzlaw_mcp.changes import pending
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, locator_label, title_of
@@ -18,6 +17,7 @@ from kzlaw_mcp.locate import (
     POINT_LABEL,
     Span,
     article_span,
+    footnote_acts,
     headings,
     point_spans,
 )
@@ -223,10 +223,6 @@ def at_date(
     return res | extra | {"as_of": date, "commit_date": g.commit_date(sha)}
 
 
-# "Законом РК от 03.10.2024 № 131-VIII", "законами РК от 29.10.2015 № 376-V (…); от 22.12.2016 №"
-_FOOTNOTE_ACT = re.compile(r"от (\d{2})\.(\d{2})\.(\d{4})\s*№\s*([0-9]+(?:-[IVXL]+)?)")
-
-
 def _first_version(corpus: Corpus, ref: ActRef) -> tuple[str, str]:
     """(sha, date) of the first version the corpus has of the act."""
     g = corpus.git(ref.scope)
@@ -237,12 +233,5 @@ def _first_version(corpus: Corpus, ref: ActRef) -> tuple[str, str]:
 
 def _amended_between(texts: list[str], after: str, until: str) -> list[dict]:
     """Amending acts the footnotes in `texts` name, adopted after `after` and up to `until`."""
-    found: dict[tuple[str, str], None] = {}
-    for text in texts:
-        for line in text.split("\n"):
-            if "Сноск" not in line and "сноск" not in line:
-                continue
-            for d, m, y, number in _FOOTNOTE_ACT.findall(line):
-                if after < f"{y}-{m}-{d}" <= until:
-                    found[(f"{y}-{m}-{d}", number)] = None
-    return [{"date": d, "number": n} for d, n in sorted(found)]
+    found = footnote_acts([ln for t in texts for ln in t.split("\n")])
+    return [{"date": d, "number": n} for d, n in sorted(found) if after < d <= until]

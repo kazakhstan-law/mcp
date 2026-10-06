@@ -147,3 +147,18 @@ def line_context(lines: list[str], lineno: int) -> LineContext:
         if line.strip():
             prev = line
     return LineContext(anchor, point, heading)
+
+
+# "Законом РК от 03.10.2024 № 131-VIII", "законами РК от 29.10.2015 № 376-V (…); от 22.12.2016 №",
+# and "29.12.2014№ 272-V": the amending acts a footnote names.
+FOOTNOTE_ACT = re.compile(r"от (\d{2})\.(\d{2})\.(\d{4})\s*№\s*([0-9]+(?:-[IVXL]+)?)")
+
+
+def footnote_acts(lines: list[str]) -> list[tuple[str, str]]:
+    """(adoption date, number) of every amending act the footnote lines name, in order."""
+    found: dict[tuple[str, str], None] = {}
+    for line in lines:
+        if "Сноск" in line or "сноск" in line:
+            for d, m, y, number in FOOTNOTE_ACT.findall(line):
+                found[(f"{y}-{m}-{d}", number)] = None
+    return list(found)

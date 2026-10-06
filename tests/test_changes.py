@@ -253,3 +253,22 @@ def test_history_of_one_article(settings):
     assert [c["date"] for c in res["commits"]] == ["2024-10-03", "2022-01-10"]
     with pytest.raises(InputError, match="no article"):
         history(corpus, PD_CODE, anchor="st99")
+
+
+def test_an_item_names_the_act_its_footnote_gained(settings):
+    res = changes(Corpus(settings), KOAP_CODE, date="2024-10-03")
+    (item,) = [i for i in res["items"] if i.get("anchor") == "st592"]
+    assert item["cause_acts"] == [{"date": "2024-10-03", "number": "131-VIII"}]
+    assert "attribution_ambiguous" not in res  # the footnote agrees with the version's act
+
+
+def test_a_version_whose_footnotes_name_another_act_says_so():
+    from kzlaw_mcp.changes import _attribution
+
+    # Prod, ст.619-2 КоАП: the version was recorded under 331-VIII, its footnote says 247-VIII.
+    version = {"cause_act_requisite": "Закон РК от 16 июля 2025 года № 331-VIII ЗРК"}
+    entries = [("st619-2", {"cause_acts": [{"date": "2025-01-14", "number": "247-VIII"}]}, [], "")]
+    res = _attribution(version, entries)
+    assert res["attribution_ambiguous"] is True
+    assert res["cause_acts"] == [{"date": "2025-01-14", "number": "247-VIII"}]
+    assert _attribution({"cause_act_requisite": "№ 247-VIII"}, entries) == {}
