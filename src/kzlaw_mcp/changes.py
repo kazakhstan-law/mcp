@@ -15,6 +15,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from kzlaw_mcp import diffs
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, locator_label, title_of
 from kzlaw_mcp.gitio import NULL_BLOB
 from kzlaw_mcp.history import FORMAT, parse_log
@@ -33,7 +34,7 @@ from kzlaw_mcp.locate import (
 ACT_DIR = re.compile(r"^.*?-[0-9]+(?=/)")
 SHA = re.compile(r"^[0-9a-f]{7,40}$")
 MAX_ITEMS = 40
-STATUSES = ("added", "removed", "modified")
+STATUSES = ("added", "removed", "modified", "renumbered", "moved")
 MAX_ITEM_TEXT = 4_000
 MAX_TOTAL_TEXT = 20_000
 MAX_ANCHOR_TEXT = 12_000
@@ -52,7 +53,10 @@ NOTE = (
     "the previous version; diff lines start with '-' (old) or '+' (new). stage 'announced': "
     "it inserted a placeholder ('вводится в действие …') whose text comes into force later; "
     "'took_effect': a placeholder was replaced by the text now in force. footnote_only: "
-    "only the footnotes changed. cause_acts: the amending acts the item's footnote gained, "
+    "only the footnotes changed. A '~' diff line is one long paragraph diffed by words: "
+    "[-old-] {+new+}, '…' for unchanged words. moved: text that only moved from one article "
+    "to another (a section that now follows newly inserted points), left out of their diffs; "
+    "status 'renumbered': the same text under a new number (from). cause_acts: the amending acts the item's footnote gained, "
     "the act that made that change. Cite with the item's citation (new text) or before_citation (old), as is. "
     "total and counts cover the whole version; a large one comes in pages: next_offset is the "
     "offset for the next page (null on the last), index lists every item."
@@ -531,7 +535,7 @@ def touched(corpus: Corpus, ref: ActRef, sha: str, lang: str = "rus") -> dict:
     if old is None or not g.ls_tree(old, meta) or not g.ls_tree(sha, meta):
         return {}
     names = g.diff_names(old, sha, f"{ref.path}/{lang}.md", f"{ref.path}/{lang}")
-    entries = _compare(corpus, ref, old, sha, names, "", None)[0] if names else []
+    entries = _readable(_compare(corpus, ref, old, sha, names, "", None)[0])[0] if names else []
     anchors = [item["anchor"] for _, item, _, _ in entries if "anchor" in item]
     out: dict = {
         "touched_anchors": anchors[:MAX_TOUCHED],
@@ -543,6 +547,15 @@ def touched(corpus: Corpus, ref: ActRef, sha: str, lang: str = "rus") -> dict:
     if unanchored := sum("anchor" not in item for _, item, _, _ in entries):
         out["touched_unanchored"] = unanchored
     return out
+
+
+def _readable(entries: list[Entry]) -> tuple[list[Entry], list[dict]]:
+    """Moves and renumbering taken out, long paragraphs diffed by words."""
+    entries, moved = diffs.moves(entries)
+    entries = diffs.renumbered(entries)
+    return [
+        (k, i, diffs.word_diffs(ln) if f == "diff" else ln, f) for k, i, ln, f in entries
+    ], moved
 
 
 def _gained_acts(a: Segment | None, b: Segment) -> list[dict]:
@@ -702,6 +715,7 @@ def _period(
         g.diff_names(old, end["sha"], *paths) if old else corpus.lang_files(ref, end["sha"], lang)
     )
     entries, footnote_only = _compare(corpus, ref, old, end["sha"], names, since, want)
+    entries, moved = _readable(entries)
     touched = _touched(corpus, ref, since, end["sha"], paths, {e[0] for e in entries if e[0]})
     for key, item, _, _ in entries:
         if key:
@@ -709,6 +723,7 @@ def _period(
     note = PERIOD_NOTE + (SUMMARY_NOTE if summary else "")
     return (
         result
+        | ({"moved": moved} if moved else {})
         | _page(entries, offset, one_anchor, summary)
         | {"footnote_only": footnote_only, "note": note}
     )
@@ -805,10 +820,12 @@ def changes(
             "language's text.",
         }
     entries, footnote_only = _compare(corpus, ref, old, new, names, version["date"], want)
+    entries, moved = _readable(entries)
     note = NOTE + (SUMMARY_NOTE if summary else "")
     return (
         result
         | _attribution(version, entries)
+        | ({"moved": moved} if moved else {})
         | _page(entries, offset, one_anchor, summary)
         | {"footnote_only": footnote_only, "note": note}
     )
