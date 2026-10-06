@@ -224,7 +224,7 @@ def at_date(
 
 
 # "Законом РК от 03.10.2024 № 131-VIII", "законами РК от 29.10.2015 № 376-V (…); от 22.12.2016 №"
-_FOOTNOTE_ACT = re.compile(r"от (\d{2})\.(\d{2})\.(\d{4}) № ([0-9]+(?:-[IVXL]+)?)")
+_FOOTNOTE_ACT = re.compile(r"от (\d{2})\.(\d{2})\.(\d{4})\s*№\s*([0-9]+(?:-[IVXL]+)?)")
 
 
 def _first_version(corpus: Corpus, ref: ActRef) -> tuple[str, str]:
