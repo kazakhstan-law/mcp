@@ -14,6 +14,8 @@ from kzlaw_mcp.config import ALL_SCOPES, Settings
 from kzlaw_mcp.gitio import CommandError, Git
 
 ACT_CODE = re.compile(r"^[0-9]{1,12}$")
+# adilet.zan.kz names acts by type letter, year and number: K1400000235 is КоАП 2014 № 235.
+ADILET_ID = re.compile(r"^[A-Z][0-9]{9,10}$")
 CODE_IN_PATH = re.compile(r"-([0-9]+)/meta\.yaml$")
 # GitHub stops rendering Markdown somewhere between 390 and 432 KB; without rendering no
 # anchor exists, so larger files are cited by line numbers in the plain view.
@@ -116,6 +118,12 @@ class Corpus:
 
     def find(self, act_code: str) -> ActRef:
         code = str(act_code).strip()
+        if ADILET_ID.match(code):
+            raise InputError(
+                f"{code!r} is an adilet.zan.kz document id; this corpus is keyed by the "
+                "law.gov.kz numeric act_code. Find the act with search on its title words "
+                "(headings_only=true) and take act_code from the hit"
+            )
         if not ACT_CODE.match(code):
             raise InputError(f"act_code must be the act's numeric code, got {act_code!r}")
         self._refresh()

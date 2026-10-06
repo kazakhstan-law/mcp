@@ -21,6 +21,12 @@ def test_find_rejects_non_codes(settings, bad):
         Corpus(settings).find(bad)
 
 
+def test_find_names_an_adilet_id(settings):
+    # Prod: history(act_code='K1400000235') twice, answered only "must be numeric".
+    with pytest.raises(InputError, match="adilet.zan.kz document id.*search"):
+        Corpus(settings).find("K1400000235")
+
+
 def test_find_unknown_code(settings):
     with pytest.raises(InputError, match="not in the corpus"):
         Corpus(settings).find("424242")
