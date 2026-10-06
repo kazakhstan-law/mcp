@@ -177,11 +177,15 @@ class Corpus:
             cached = self._repealed.get(scope)
             if cached and cached[0] == head:
                 return cached[1]
-        out = self.git(scope).log(
+        g = self.git(scope)
+        # The full walk takes ~10 s on a large scope, and every refresh that moves HEAD would
+        # pay it again on the next call: after a fast-forward, walk only the new commits.
+        since = cached[0] if cached and g.count(f"{head}..{cached[0]}") == 0 else None
+        out = g.log(
             "--diff-filter=D",
             "--format=%x1e%H%x1f%cs",
             "--name-only",
-            head,
+            f"{since}..{head}" if since else head,
             "--",
             ":(glob)**/meta.yaml",
             max_bytes=64_000_000,
@@ -200,6 +204,8 @@ class Corpus:
                     found[m.group(1)] = Repealed(
                         ActRef(m.group(1), scope, name.rsplit("/", 1)[0]), date, sha
                     )
+        if since and cached:  # older repeals first, so a newer deletion of the same act wins
+            found = cached[1] | found
         with self._lock:
             live = set(self._index) | set(self._replaced)
         found = {c: r for c, r in found.items() if c not in live}
@@ -217,9 +223,12 @@ class Corpus:
             cached = self._titles.get(scope)
             if cached and cached[0] == head:
                 return cached[1]
-        acts = list(self.repealed_in(scope).values())
+        repealed = self.repealed_in(scope)
+        # A title is read at the parent of the repeal; one known from the last head still is.
+        known = {c: t for c, t in (cached[1] if cached else {}).items() if c in repealed}
+        acts = [r for c, r in repealed.items() if c not in known or known[c]["sha"] != r.sha]
         blobs = self.git(scope).blobs([f"{r.sha}^:{r.ref.path}/meta.yaml" for r in acts])
-        titles = {}
+        titles = {c: t for c, t in known.items() if c not in {r.ref.code for r in acts}}
         for rep, blob in zip(acts, blobs, strict=True):
             if blob is None:
                 continue
@@ -228,6 +237,7 @@ class Corpus:
             titles[rep.ref.code] = {
                 "title": meta.get("title") or {},
                 "requisite": meta.get("requisite", ""),
+                "sha": rep.sha,
             }
         with self._repealed_lock:
             self._titles[scope] = (head, titles)

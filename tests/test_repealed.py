@@ -64,3 +64,37 @@ def test_repealed_act_that_amended_others_lists_them(settings):
 
 def test_amending_act_code_still_lists_what_it_changed(settings):
     assert changes(Corpus(settings), PD_AMENDER)["acts_total"] == 1
+
+
+def test_repealed_index_after_a_fast_forward_walks_only_new_commits(tmp_path, monkeypatch):
+    from conftest import commit, init, meta
+    from kzlaw_mcp.config import Settings
+    from kzlaw_mcp.gitio import Git
+
+    repo = init(tmp_path / "codes")
+    first, second, third = (f"03-laws/2000/0101-akt-{c}" for c in ("101", "102", "103"))
+    commit(
+        repo,
+        "2020-01-01",
+        {f"{d}/meta.yaml": meta(d[-3:], f"Акт {d[-3:]}", "Закон") for d in (first, second, third)},
+        "start",
+    )
+    commit(repo, "2021-01-01", {first: None}, "repeal 101")
+    corpus = Corpus(Settings(corpus_root=tmp_path, head_ttl_s=0))
+    assert set(corpus.repealed_in("codes")) == {"101"}
+    assert corpus.repealed_titles("codes")["101"]["title"]["rus"] == "Акт 101"
+
+    commit(repo, "2022-01-01", {second: None}, "repeal 102")
+    ranges = []
+    real_log = Git.log
+
+    def log(self, *args, **kw):
+        ranges.extend(a for a in args if ".." in a)
+        return real_log(self, *args, **kw)
+
+    monkeypatch.setattr(Git, "log", log)
+    found = corpus.repealed_in("codes")
+    assert {c: r.date for c, r in found.items()} == {"101": "2021-01-01", "102": "2022-01-01"}
+    assert len(ranges) == 1  # only the new commit was walked
+    titles = corpus.repealed_titles("codes")
+    assert {c: t["title"]["rus"] for c, t in titles.items()} == {"101": "Акт 101", "102": "Акт 102"}
