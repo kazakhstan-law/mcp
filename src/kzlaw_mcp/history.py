@@ -12,8 +12,10 @@ from kzlaw_mcp.locate import (
     ANCHOR_LINE,
     HEADING,
     PLACEHOLDER,
+    act_number,
     article_span,
     body_lines,
+    footnote_acts,
     stage_between,
 )
 
@@ -69,7 +71,9 @@ ANCHOR_NOTE = (
     "the corpus has no earlier version of this act: when the act was adopted before that date "
     "(its requisite) or replaced an earlier one (predecessors in history without anchor), the "
     "article may be older, and the corpus does not say since when. stage 'announced': a placeholder for text that takes effect later; 'took_effect': "
-    "the text replaced it. changes(act_code, sha, anchor=...) shows what one of them changed. "
+    "the text replaced it. cause_acts: the amending acts the article's footnote gained in that "
+    "version; attribution_ambiguous: they are not the version's own act (cause_act_*), so name "
+    "the act from cause_acts. changes(act_code, sha, anchor=...) shows what one of them changed. "
     "limited: there are more, older ones: pass next_offset as offset."
 )
 
@@ -137,6 +141,26 @@ def _article(text: str | None, anchor: str) -> list[str] | None:
     return body_lines(span.text) if span else None
 
 
+def _footnote_acts(text: str | None, anchor: str) -> set[tuple[str, str]]:
+    span = article_span(text, anchor) if text else None
+    return set(footnote_acts(span.text.split("\n"))) if span else set()
+
+
+CAUSE_NUMBER = re.compile(r"№\s*([0-9]+(?:-[IVXLІХ]+)?)")
+
+
+def _cause(commit: dict, gained: set[tuple[str, str]]) -> dict:
+    """The acts the article's footnote gained in this version, and whether they are not the
+    version's own act: a version records one act, but several can take effect together."""
+    if not gained:
+        return {}
+    acts = [{"date": d, "number": n} for d, n in sorted(gained)]
+    m = CAUSE_NUMBER.search(commit.get("cause_act_requisite") or "")
+    if m and {n for _, n in gained} == {act_number(m.group(1))}:
+        return {"cause_acts": acts}
+    return {"cause_acts": acts, "attribution_ambiguous": True}
+
+
 def _article_versions(
     corpus: Corpus, ref: ActRef, anchor: str, limit: int, offset: int, since: str | None
 ) -> dict:
@@ -185,6 +209,9 @@ def _article_versions(
         parent = g.rev_parse(f"{commit['sha']}^") if old is None else None
         if old is None and not (parent and g.ls_tree(parent, f"{ref.path}/meta.yaml")):
             commit["status"] = "first_version"  # the corpus starts here, not the article
+        else:  # an added article's footnote names the act that added it
+            before = _footnote_acts(texts[files[current][0]], anchor) if old else set()
+            commit |= _cause(commit, _footnote_acts(texts[new_blob], anchor) - before)
         if st := stage_between(old, new):
             commit["stage"] = st
         found.append(commit)
@@ -283,7 +310,7 @@ def history(
         from kzlaw_mcp.changes import touched  # changes imports this module
 
         lang = "rus" if corpus.lang_files(ref, corpus.last_sha(ref), "rus") else "kaz"
-        own["commits"] = [c | touched(corpus, ref, c["sha"], lang) for c in own["commits"]]
+        own["commits"] = [c | touched(corpus, ref, c, lang) for c in own["commits"]]
 
     predecessors, refs, chain, seen = [], [], [ref], {ref.code}
     while chain and len(predecessors) < MAX_DEPTH:

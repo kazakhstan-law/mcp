@@ -151,7 +151,14 @@ def line_context(lines: list[str], lineno: int) -> LineContext:
 
 # "Законом РК от 03.10.2024 № 131-VIII", "законами РК от 29.10.2015 № 376-V (…); от 22.12.2016 №",
 # and "29.12.2014№ 272-V": the amending acts a footnote names.
-FOOTNOTE_ACT = re.compile(r"от (\d{2})\.(\d{2})\.(\d{4})\s*№\s*([0-9]+(?:-[IVXL]+)?)")
+FOOTNOTE_ACT = re.compile(r"от (\d{2})\.(\d{2})\.(\d{4})\s*№\s*([0-9]+(?:-[IVXLІХ]+)?)")
+# The convocation numeral is typed with Cyrillic І and Х about as often as with Latin ones.
+_LATIN_ROMAN = str.maketrans("ІХ", "IX")
+
+
+def act_number(number: str) -> str:
+    """'300-VІ' (Cyrillic І) -> '300-VI': one spelling to compare act numbers by."""
+    return number.translate(_LATIN_ROMAN)
 
 
 def footnote_acts(lines: list[str]) -> list[tuple[str, str]]:
@@ -160,5 +167,5 @@ def footnote_acts(lines: list[str]) -> list[tuple[str, str]]:
     for line in lines:
         if "Сноск" in line or "сноск" in line:
             for d, m, y, number in FOOTNOTE_ACT.findall(line):
-                found[(f"{y}-{m}-{d}", number)] = None
+                found[(f"{y}-{m}-{d}", act_number(number))] = None
     return list(found)

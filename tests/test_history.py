@@ -84,3 +84,30 @@ def test_history_since_lists_the_articles_each_version_touched(settings):
     assert by_date["2026-07-12"]["placeholders_only"] is False
     assert "st10-1" in by_date["2026-07-12"]["touched_anchors"]
     assert "touched_anchors" not in by_date["2025-05-01"]  # the first version: nothing before
+
+
+def test_article_history_names_the_act_its_footnote_gained(settings):
+    commits = history(Corpus(settings), KOAP_CODE, anchor="st592")["commits"]
+    (v2024,) = [c for c in commits if c["date"] == "2024-10-03"]
+    assert v2024["cause_acts"] == [{"date": "2024-10-03", "number": "131-VIII"}]
+    assert "attribution_ambiguous" not in v2024  # the footnote agrees with the version's act
+
+
+def test_a_footnote_naming_another_act_than_the_version_is_ambiguous():
+    from kzlaw_mcp.history import _cause
+
+    # Prod, ст.619-2 КоАП: version 2026-07-01 recorded under 331-VIII, footnote says 247-VIII.
+    commit = {"cause_act_requisite": "Закон РК от 1 июля 2026 года № 331-VIII ЗРК"}
+    res = _cause(commit, {("2025-12-30", "247-VIII")})
+    assert res == {
+        "cause_acts": [{"date": "2025-12-30", "number": "247-VIII"}],
+        "attribution_ambiguous": True,
+    }
+
+
+def test_a_cyrillic_numeral_is_the_same_act():
+    from kzlaw_mcp.history import _cause
+
+    # Requisites type the convocation as "300-VІ" with a Cyrillic І; footnotes often in Latin.
+    commit = {"cause_act_requisite": "Закон РК от 26 декабря 2019 года № 300-VІ ЗРК"}
+    assert "attribution_ambiguous" not in _cause(commit, {("2019-12-26", "300-VI")})
