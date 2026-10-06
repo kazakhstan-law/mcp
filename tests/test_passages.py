@@ -114,3 +114,12 @@ def test_amended_between_reads_footnotes():
     assert _amended_between([text], "2016-09-15", "2017-07-11") == [
         {"date": "2016-12-22", "number": "28-VI"}
     ]
+
+
+def test_at_date_names_the_next_change_of_the_article(settings):
+    corpus = Corpus(settings)
+    nxt = at_date(corpus, PD_CODE, "2025-06-01", anchor="st9")["next_change_after"]
+    assert (nxt["date"], nxt["stage"]) == ("2026-01-09", "announced")
+    assert "256-VIII" in nxt["cause_act_requisite"]
+    assert at_date(corpus, PD_CODE, "2026-08-01", anchor="st9")["next_change_after"] is None
+    assert "next_change_after" not in at_date(corpus, PD_CODE, "2025-06-01")

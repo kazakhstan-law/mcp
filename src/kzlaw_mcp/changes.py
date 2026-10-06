@@ -505,6 +505,46 @@ def _compare(
     return entries, footnote_only
 
 
+MAX_TOUCHED = 60
+
+
+def _announces(entry: Entry) -> bool:
+    """A change that puts nothing in force: a placeholder, or a bare heading over one."""
+    _, item, lines, field = entry
+    if item.get("stage") == "announced":
+        return True
+    if item["status"] == "removed":
+        return False
+    added = lines if field == "text" else [ln[1:] for ln in lines if ln.startswith("+")]
+    gone = [] if field == "text" else [ln for ln in lines if ln.startswith("-")]
+    return bool(added) and not gone and all(HEADING.match(ln) or not ln.strip() for ln in added)
+
+
+def touched(corpus: Corpus, ref: ActRef, sha: str, lang: str = "rus") -> dict:
+    """The articles one version changed (anchors), and whether it only inserted placeholders.
+
+    Empty for a version the act's previous one does not precede (its first, or its repeal).
+    """
+    g = corpus.git(ref.scope)
+    old = g.rev_parse(f"{sha}^")
+    meta = f"{ref.path}/meta.yaml"
+    if old is None or not g.ls_tree(old, meta) or not g.ls_tree(sha, meta):
+        return {}
+    names = g.diff_names(old, sha, f"{ref.path}/{lang}.md", f"{ref.path}/{lang}")
+    entries = _compare(corpus, ref, old, sha, names, "", None)[0] if names else []
+    anchors = [item["anchor"] for _, item, _, _ in entries if "anchor" in item]
+    out: dict = {
+        "touched_anchors": anchors[:MAX_TOUCHED],
+        # A version on an act's adoption day often only announces text that comes later.
+        "placeholders_only": bool(entries) and all(_announces(e) for e in entries),
+    }
+    if len(anchors) > MAX_TOUCHED:
+        out["touched_more"] = len(anchors) - MAX_TOUCHED
+    if unanchored := sum("anchor" not in item for _, item, _, _ in entries):
+        out["touched_unanchored"] = unanchored
+    return out
+
+
 def _gained_acts(a: Segment | None, b: Segment) -> list[dict]:
     old = set(footnote_acts(a.footnotes)) if a else set()
     return [{"date": d, "number": n} for d, n in footnote_acts(b.footnotes) if (d, n) not in old]

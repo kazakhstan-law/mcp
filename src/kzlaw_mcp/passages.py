@@ -11,6 +11,7 @@ import datetime as dt
 
 from kzlaw_mcp.changes import pending
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, locator_label, title_of
+from kzlaw_mcp.history import MAX_LIMIT, _article_versions
 from kzlaw_mcp.locate import (
     ANCHOR_ID,
     ANCHOR_LINE,
@@ -208,19 +209,44 @@ def at_date(
                 )
             res = _passages(corpus, ref, first, lang, anchor, point, f"on {since}")
             texts = [p["text"] for p in res.get("passages", [])] or [res.get("overview", "")]
-            return res | {
-                "as_of": since,
-                "asked": date,
-                "commit_date": since,
-                "approximate": True,
-                "amended_between": _amended_between(texts, date, since),
-                "note": f"the corpus has no text of act {asked.code} before {since}: this is "
-                f"the earliest it has, not the text on {date}. amended_between: the amending "
-                "acts its footnotes name, dated after the asked date; the text on that date "
-                "differed by them. Say both when you answer",
-            }
+            return (
+                res
+                | _next_change(corpus, ref, anchor, since)
+                | {
+                    "as_of": since,
+                    "asked": date,
+                    "commit_date": since,
+                    "approximate": True,
+                    "amended_between": _amended_between(texts, date, since),
+                    "note": f"the corpus has no text of act {asked.code} before {since}: this is "
+                    f"the earliest it has, not the text on {date}. amended_between: the amending "
+                    "acts its footnotes name, dated after the asked date; the text on that date "
+                    "differed by them. Say both when you answer",
+                }
+            )
     res = _passages(corpus, ref, sha, lang, anchor, point, f"on {date}")
-    return res | extra | {"as_of": date, "commit_date": g.commit_date(sha)}
+    return (
+        res
+        | _next_change(corpus, ref, anchor, date)
+        | extra
+        | {"as_of": date, "commit_date": g.commit_date(sha)}
+    )
+
+
+def _next_change(corpus: Corpus, ref: ActRef, anchor: str | None, after: str) -> dict:
+    """The first later version that changed the article: how long the text read stayed so."""
+    if not anchor:
+        return {}
+    try:
+        found = _article_versions(corpus, ref, anchor, MAX_LIMIT, 0, after)["commits"]
+    except InputError:  # no such article now: nothing to follow
+        return {}
+    later = [c for c in found if c["date"] > after]
+    if not later:
+        return {"next_change_after": None}
+    first = later[-1]  # newest first
+    keys = ("date", "sha", "cause_act_requisite", "stage")
+    return {"next_change_after": {k: first[k] for k in keys if k in first}}
 
 
 def _first_version(corpus: Corpus, ref: ActRef) -> tuple[str, str]:

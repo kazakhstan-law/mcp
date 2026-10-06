@@ -57,7 +57,9 @@ NOTE = (
     "total counts all versions (from since, when given); limited: there are more, older ones: "
     "pass next_offset as offset for the next page, or since=YYYY-MM-DD to keep only versions "
     "from that date. introduced.announced: the phrase first came as a heading or placeholder "
-    "whose text took effect later, on introduced.date; placeholder true: not in force yet."
+    "whose text took effect later, on introduced.date; placeholder true: not in force yet. "
+    "With since: each version lists touched_anchors, the articles whose text it changed, and "
+    "placeholders_only: it only inserted placeholders, no text in force; skip those."
 )
 
 ANCHOR_NOTE = (
@@ -276,6 +278,12 @@ def history(
             "note": ANCHOR_NOTE,
         }
     own = _versions(corpus, ref, phrase, limit, offset, since)
+    if since and not phrase:
+        # Which articles each version touched: whether it matters needs no changes call each.
+        from kzlaw_mcp.changes import touched  # changes imports this module
+
+        lang = "rus" if corpus.lang_files(ref, corpus.last_sha(ref), "rus") else "kaz"
+        own["commits"] = [c | touched(corpus, ref, c["sha"], lang) for c in own["commits"]]
 
     predecessors, refs, chain, seen = [], [], [ref], {ref.code}
     while chain and len(predecessors) < MAX_DEPTH:

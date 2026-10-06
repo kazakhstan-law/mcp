@@ -73,3 +73,14 @@ def test_option_like_phrase_is_text(settings):
 def test_bad_phrase(settings, phrase):
     with pytest.raises(InputError):
         history(Corpus(settings), PDD_CODE, phrase=phrase)
+
+
+def test_history_since_lists_the_articles_each_version_touched(settings):
+    commits = history(Corpus(settings), PD_CODE, since="2025-01-01")["commits"]
+    by_date = {c["date"]: c for c in commits}
+    # 2026-01-09 only announced: a placeholder subpoint in ст.9 and a bare heading ст.10-1.
+    assert by_date["2026-01-09"]["touched_anchors"] == ["st9"]
+    assert by_date["2026-01-09"]["placeholders_only"] is True
+    assert by_date["2026-07-12"]["placeholders_only"] is False
+    assert "st10-1" in by_date["2026-07-12"]["touched_anchors"]
+    assert "touched_anchors" not in by_date["2025-05-01"]  # the first version: nothing before

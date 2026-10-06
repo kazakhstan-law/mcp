@@ -125,7 +125,9 @@ AT_DATE_DESC = (
     "returns the text of the repealed code it replaced (replaced_by names the new one). An act "
     "adopted before the corpus has its text answers 'no data before <date>', which does not "
     "mean it was not in force; earliest=true then returns the earliest text the corpus has, "
-    "approximate=true, with amended_between: the amending acts its footnotes date after yours."
+    "approximate=true, with amended_between: the amending acts its footnotes date after yours. "
+    "With anchor, next_change_after: the next version that changed that article (date, act, "
+    "stage), null when the text read is still the law."
 )
 HISTORY_DESC = (
     "The act's versions from git: the date each took effect and its amending act (number, title, "
@@ -134,7 +136,9 @@ HISTORY_DESC = (
     "when it entered the law. predecessors: the repealed acts it replaced (an earlier code), "
     "with their versions. Newest first, up to limit (max 50); total counts them all. For more: "
     "offset=next_offset, or since=YYYY-MM-DD for the versions from a date. With anchor "
-    "(st613): only the versions that changed that article's text."
+    "(st613): only the versions that changed that article's text. With since, each version "
+    "lists touched_anchors (the articles it changed) and placeholders_only (it put no text in "
+    "force): pick the versions that matter without a changes call on each."
 )
 
 CHANGES_DESC = (
