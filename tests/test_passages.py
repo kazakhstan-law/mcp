@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import KOAP, KOAP_CODE, PDD, PDD_CODE
+from conftest import KOAP, KOAP_CODE, PD_CODE, PDD, PDD_CODE
 from kzlaw_mcp.corpus import Corpus, InputError
 from kzlaw_mcp.passages import at_date, read
 
@@ -87,3 +87,30 @@ def test_missing_language_is_not_called_not_in_force(settings):
     # the traffic rules have Russian text only; on 2023-07-15 the act was in force
     with pytest.raises(InputError, match="no 'kaz' text"):
         at_date(Corpus(settings), PDD_CODE, "2023-07-15", lang="kaz", point="1")
+
+
+def test_at_date_before_the_corpus_has_the_act_says_no_data(settings):
+    corpus = Corpus(settings)
+    # Prod: at_date('81245', 'st613', '2016-09-15') answered "was not in force", which reads
+    # as "the act did not exist"; the corpus simply starts later.
+    with pytest.raises(InputError, match="no data before 2025-05-01.*adopted on 2013-05-21"):
+        at_date(corpus, PD_CODE, "2020-01-01", anchor="st9")
+    with pytest.raises(InputError, match="not adopted yet on 2010-01-01"):
+        at_date(corpus, PD_CODE, "2010-01-01")
+    res = at_date(corpus, PD_CODE, "2020-01-01", anchor="st9", earliest=True)
+    assert (res["approximate"], res["as_of"], res["asked"]) == (True, "2025-05-01", "2020-01-01")
+    assert "статистических целей" in res["passages"][0]["text"]
+
+
+def test_amended_between_reads_footnotes():
+    from kzlaw_mcp.passages import _amended_between
+
+    text = (
+        "1. Текст.\n"
+        "> *Сноска. Статья 613 с изменениями, внесенными законами РК от 29.10.2015 № 376-V "
+        "(вводится в действие с 01.01.2016); от 22.12.2016 № 28-VI; от 03.10.2024 № 131-VIII.*\n"
+        "2. Штраф от 01.01.2016 № 5 в тексте статьи, не в сноске.\n"
+    )
+    assert _amended_between([text], "2016-09-15", "2017-07-11") == [
+        {"date": "2016-12-22", "number": "28-VI"}
+    ]

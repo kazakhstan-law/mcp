@@ -122,7 +122,10 @@ READ_DESC = (
 AT_DATE_DESC = (
     "Like read, but the text in force on a past date (YYYY-MM-DD): for 'what was the rule when "
     "it happened'. The citation is pinned to that date's version. Before a code took effect it "
-    "returns the text of the repealed code it replaced (replaced_by names the new one)."
+    "returns the text of the repealed code it replaced (replaced_by names the new one). An act "
+    "adopted before the corpus has its text answers 'no data before <date>', which does not "
+    "mean it was not in force; earliest=true then returns the earliest text the corpus has, "
+    "approximate=true, with amended_between: the amending acts its footnotes date after yours."
 )
 HISTORY_DESC = (
     "The act's versions from git: the date each took effect and its amending act (number, title, "
@@ -223,12 +226,20 @@ def build_server(settings: Settings, corpus: Corpus | None = None) -> FastMCP:
         lang: Lang = "rus",
         anchor: str | None = None,
         point: str | None = None,
+        earliest: bool = False,
     ) -> dict[str, Any]:
-        args = {"act_code": act_code, "date": date, "lang": lang, "anchor": anchor, "point": point}
+        args = {
+            "act_code": act_code,
+            "date": date,
+            "lang": lang,
+            "anchor": anchor,
+            "point": point,
+            "earliest": earliest,
+        }
         return await call(
             "at_date",
             args,
-            lambda: at_date_tool(corpus, act_code, date, lang, anchor, point),
+            lambda: at_date_tool(corpus, act_code, date, lang, anchor, point, earliest),
         )
 
     @mcp.tool(description=HISTORY_DESC, annotations=READ_ONLY)

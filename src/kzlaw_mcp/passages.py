@@ -8,6 +8,7 @@ never by a remembered part name.
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from kzlaw_mcp.changes import pending
 from kzlaw_mcp.corpus import ActRef, Corpus, InputError, check_lang, locator_label, title_of
@@ -156,6 +157,7 @@ def at_date(
     lang: str = "rus",
     anchor: str | None = None,
     point: str | None = None,
+    earliest: bool = False,
 ) -> dict:
     try:
         if len(date) != 10:
@@ -193,8 +195,54 @@ def at_date(
                 f"(history on {asked.code} shows its versions)"
             )
         else:
-            raise InputError(
-                f"act {asked.code} was not in force on {date} (it enters the corpus later)"
-            )
+            first, since = _first_version(corpus, ref)
+            adopted = str(corpus.meta(ref, first).get("approved_on") or "")
+            if adopted and adopted > date:
+                raise InputError(f"act {asked.code} was not adopted yet on {date}: {adopted}")
+            if not earliest:
+                raise InputError(
+                    f"no data before {since}: act {asked.code} was adopted on "
+                    f"{adopted or 'an unknown date'}, but the corpus has its text only from "
+                    f"{since}. This is not a sign the act was not in force on {date}. Pass "
+                    "earliest=true for the earliest text the corpus has, marked approximate"
+                )
+            res = _passages(corpus, ref, first, lang, anchor, point, f"on {since}")
+            texts = [p["text"] for p in res.get("passages", [])] or [res.get("overview", "")]
+            return res | {
+                "as_of": since,
+                "asked": date,
+                "commit_date": since,
+                "approximate": True,
+                "amended_between": _amended_between(texts, date, since),
+                "note": f"the corpus has no text of act {asked.code} before {since}: this is "
+                f"the earliest it has, not the text on {date}. amended_between: the amending "
+                "acts its footnotes name, dated after the asked date; the text on that date "
+                "differed by them. Say both when you answer",
+            }
     res = _passages(corpus, ref, sha, lang, anchor, point, f"on {date}")
     return res | extra | {"as_of": date, "commit_date": g.commit_date(sha)}
+
+
+# "Законом РК от 03.10.2024 № 131-VIII", "законами РК от 29.10.2015 № 376-V (…); от 22.12.2016 №"
+_FOOTNOTE_ACT = re.compile(r"от (\d{2})\.(\d{2})\.(\d{4}) № ([0-9]+(?:-[IVXL]+)?)")
+
+
+def _first_version(corpus: Corpus, ref: ActRef) -> tuple[str, str]:
+    """(sha, date) of the first version the corpus has of the act."""
+    g = corpus.git(ref.scope)
+    out = g.log("--format=%H %cs", corpus.last_sha(ref), "--", f"{ref.path}/meta.yaml")
+    sha, when = out.strip().split("\n")[-1].split()
+    return sha, when
+
+
+def _amended_between(texts: list[str], after: str, until: str) -> list[dict]:
+    """Amending acts the footnotes in `texts` name, adopted after `after` and up to `until`."""
+    found: dict[tuple[str, str], None] = {}
+    for text in texts:
+        for line in text.split("\n"):
+            if "Сноск" not in line and "сноск" not in line:
+                continue
+            for d, m, y, number in _FOOTNOTE_ACT.findall(line):
+                if after < f"{y}-{m}-{d}" <= until:
+                    found[(f"{y}-{m}-{d}", number)] = None
+    return [{"date": d, "number": n} for d, n in sorted(found)]

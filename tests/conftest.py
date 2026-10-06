@@ -310,9 +310,10 @@ def corpus_root(tmp_path_factory) -> Path:
         {"Cause-Act-Code": WATER_CODE, "Acts-Changed": "2"},
     )
 
-    pd_meta = meta(
-        PD_CODE, "О персональных данных и их защите", "Закон РК от 21 мая 2013 года № 94-V"
-    )
+    pd_meta = (
+        meta(PD_CODE, "О персональных данных и их защите", "Закон РК от 21 мая 2013 года № 94-V")
+        + "approved_on: 2013-05-21\n"
+    )  # adopted long before the corpus has its text
     commit(codes, "2025-05-01", {f"{PD}/meta.yaml": pd_meta, f"{PD}/rus.md": pd_text(0)}, "№94-V")
     pd_cause = {
         "Cause-Act-Code": PD_AMENDER,
